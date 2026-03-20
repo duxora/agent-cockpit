@@ -21,11 +21,14 @@ import {
   getManagedSessionById, listManagedSessions, cleanupManagedSessions,
   createTemplate, listTemplates, removeTemplate,
 } from './db.js'
+import { initRailway } from './railway.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const app = express()
 const server = createServer(app)
 const PORT = parseInt(process.env.PORT || '4200')
+
+initRailway()
 
 app.use(express.json())
 
