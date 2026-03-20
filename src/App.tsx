@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { Plus, LayoutGrid, Rows3, RefreshCw, Search, Settings } from 'lucide-react'
 import SessionCard from './components/SessionCard'
 import TerminalView from './components/TerminalView'
+import LocalSessionDetail from './components/LocalSessionDetail'
 import NewSessionModal from './components/NewSessionModal'
 import SettingsModal from './components/SettingsModal'
 import { useWebSocket } from './hooks/useWebSocket'
@@ -49,7 +50,8 @@ export default function App() {
   const handleKill = useCallback(async (name: string) => {
     if (!confirm(`Kill session "${name}"?`)) return
     await fetch(`/api/sessions/${encodeURIComponent(name)}`, { method: 'DELETE' })
-    if (selectedSession === name) setSelectedSession(null)
+    const killed = sessions.find((s) => s.name === name)
+    if (selectedSession === (killed?.sessionId || name)) setSelectedSession(null)
   }, [selectedSession])
 
   const handleCreate = useCallback(async (name: string, command: string, cwd: string) => {
@@ -221,11 +223,8 @@ export default function App() {
                   <SessionCard
                     key={session.sessionId || session.name}
                     session={session}
-                    isSelected={selectedSession === session.name && session.source !== 'local'}
-                    onSelect={() => {
-                      if (session.source === 'local') return
-                      setSelectedSession(session.name)
-                    }}
+                    isSelected={selectedSession === (session.sessionId || session.name)}
+                    onSelect={() => setSelectedSession(session.sessionId || session.name)}
                     onKill={() => handleKill(session.name)}
                     onSendKeys={(keys) => handleSendKeys(session.name, keys)}
                   />
@@ -234,13 +233,18 @@ export default function App() {
               </div>
             </div>
 
-            {/* Terminal view */}
+            {/* Detail / Terminal view */}
             <div className="flex-1 bg-[#0a0a0a]">
               {selectedSession ? (
-                <TerminalView sessionName={selectedSession} />
+                (() => {
+                  const selected = sessions.find((s) => (s.sessionId || s.name) === selectedSession)
+                  if (!selected) return <div className="flex h-full items-center justify-center text-gray-600"><p className="text-sm">Session not found</p></div>
+                  if (selected.source === 'local') return <LocalSessionDetail session={selected} />
+                  return <TerminalView sessionName={selected.name} />
+                })()
               ) : (
                 <div className="flex h-full items-center justify-center text-gray-600">
-                  <p className="text-sm">Select a session to view its terminal</p>
+                  <p className="text-sm">Select a session to view details</p>
                 </div>
               )}
             </div>

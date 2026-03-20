@@ -36,7 +36,7 @@ export default function SessionCard({ session, isSelected, onSelect, onKill, onS
   return (
     <div
       onClick={onSelect}
-      className={`${isLocal ? 'cursor-default' : 'cursor-pointer'} rounded-lg border p-4 transition-all hover:border-blue-500/50 ${
+      className={`cursor-pointer rounded-lg border p-4 transition-all hover:border-blue-500/50 ${
         isSelected
           ? 'border-blue-500 bg-blue-500/10'
           : 'border-gray-700 bg-gray-900 hover:bg-gray-800/50'
