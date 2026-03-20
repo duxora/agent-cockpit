@@ -120,13 +120,24 @@ app.post('/api/sessions', (req, res) => {
 
 app.delete('/api/sessions/:name', (req, res) => {
   const { name } = req.params
+  // Try tmux first
   const ok = killSession(name)
   if (ok) {
     logEvent(name, 'killed')
+    broadcastSessions()
     res.json({ ok: true })
-  } else {
-    res.status(404).json({ error: `Session "${name}" not found` })
+    return
   }
+  // Try managed session (name may be sessionId for local sessions)
+  const managed = getManagedSessionById(name)
+  if (managed) {
+    endManagedSession(name)
+    logEvent(managed.name, 'dismissed')
+    broadcastSessions()
+    res.json({ ok: true })
+    return
+  }
+  res.status(404).json({ error: `Session "${name}" not found` })
 })
 
 app.get('/api/sessions/:name/logs', (req, res) => {
@@ -215,6 +226,37 @@ app.post('/api/settings/claude-token', (req, res) => {
   } catch {
     // Railway CLI not available — just update process env
     res.json({ ok: true, message: 'Token updated for current process (Railway CLI not available)' })
+  }
+})
+
+// --- Open in Terminal (local only) ---
+
+app.post('/api/sessions/:id/open-terminal', (req, res) => {
+  const { id } = req.params
+  const managed = getManagedSessionById(id)
+  if (!managed) {
+    res.status(404).json({ error: 'Session not found' })
+    return
+  }
+  if (process.platform !== 'darwin') {
+    res.status(400).json({ error: 'Open in terminal only supported on macOS' })
+    return
+  }
+  try {
+    const cmd = `claude --resume ${managed.id}`
+    const script = `
+      tell application "com.mitchellh.ghostty"
+        activate
+        tell application "System Events" to keystroke "t" using command down
+        delay 0.3
+        tell application "System Events" to keystroke "cd ${managed.cwd} && ${cmd}"
+        tell application "System Events" to key code 36
+      end tell
+    `
+    execSync(`osascript -e '${script}'`, { timeout: 5000 })
+    res.json({ ok: true })
+  } catch (e) {
+    res.status(500).json({ error: `Failed to open terminal: ${(e as Error).message}` })
   }
 })
 

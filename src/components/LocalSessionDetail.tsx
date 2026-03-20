@@ -1,4 +1,5 @@
-import { Monitor, Clock, MapPin, Wifi, WifiOff, Laptop } from 'lucide-react'
+import { useState } from 'react'
+import { Monitor, Clock, MapPin, Wifi, WifiOff, Laptop, TerminalSquare } from 'lucide-react'
 import type { Session } from '../types'
 import SessionTimeline from './SessionTimeline'
 
@@ -31,6 +32,23 @@ interface Props {
 
 export default function LocalSessionDetail({ session }: Props) {
   const cfg = STATUS_CONFIG[session.status] || STATUS_CONFIG.dead
+  const [opening, setOpening] = useState(false)
+
+  const handleOpenTerminal = async () => {
+    if (!session.sessionId) return
+    setOpening(true)
+    try {
+      const res = await fetch(`/api/sessions/${encodeURIComponent(session.sessionId)}/open-terminal`, { method: 'POST' })
+      if (!res.ok) {
+        const err = await res.json()
+        alert(err.error || 'Failed to open terminal')
+      }
+    } catch {
+      alert('Failed to open terminal')
+    } finally {
+      setOpening(false)
+    }
+  }
 
   return (
     <div className="flex h-full flex-col">
@@ -94,18 +112,27 @@ export default function LocalSessionDetail({ session }: Props) {
         )}
       </div>
 
-      {/* Relay instructions */}
-      <div className="mx-6 rounded-lg border border-blue-500/20 bg-blue-500/5 px-4 py-3 space-y-2">
-        <p className="text-xs text-blue-400 font-medium">No relay connected — terminal streaming is offline</p>
-        <p className="text-xs text-gray-400">
-          To stream this session's terminal to the dashboard, launch Claude with the relay wrapper:
-        </p>
-        <pre className="text-xs text-gray-300 bg-gray-800/50 rounded px-3 py-2 overflow-x-auto">
-          npx agent-cockpit relay claude [your args here]
-        </pre>
-        <p className="text-xs text-gray-500">
-          All Claude parameters work normally. The relay streams terminal I/O to the cockpit server.
-        </p>
+      {/* Actions */}
+      <div className="mx-6 space-y-3">
+        {session.sessionId && (
+          <button
+            onClick={handleOpenTerminal}
+            disabled={opening}
+            className="flex w-full items-center justify-center gap-2 rounded-lg border border-blue-500/30 bg-blue-500/10 px-4 py-2.5 text-sm font-medium text-blue-400 hover:bg-blue-500/20 disabled:opacity-50"
+          >
+            <TerminalSquare className="h-4 w-4" />
+            {opening ? 'Opening...' : 'Open in Ghostty'}
+          </button>
+        )}
+        <div className="rounded-lg border border-gray-800 bg-gray-900/50 px-4 py-3 space-y-2">
+          <p className="text-xs text-gray-500 font-medium">No relay connected — terminal streaming is offline</p>
+          <p className="text-xs text-gray-500">
+            To stream this session's terminal to the dashboard, launch Claude with the relay wrapper:
+          </p>
+          <pre className="text-xs text-gray-300 bg-gray-800/50 rounded px-3 py-2 overflow-x-auto">
+            cockpit-relay claude [your args here]
+          </pre>
+        </div>
       </div>
 
       {/* Timeline */}

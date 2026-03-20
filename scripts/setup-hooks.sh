@@ -14,6 +14,7 @@ mkdir -p "$HOOK_DIR"
 cp "$PROJECT_DIR/hooks/cockpit-register.sh" "$HOOK_DIR/"
 cp "$PROJECT_DIR/hooks/cockpit-heartbeat.sh" "$HOOK_DIR/"
 cp "$PROJECT_DIR/hooks/cockpit-notify.sh" "$HOOK_DIR/"
+cp "$PROJECT_DIR/hooks/cockpit-session-end.sh" "$HOOK_DIR/"
 chmod +x "$HOOK_DIR"/cockpit-*.sh
 
 echo "  Hook scripts installed to $HOOK_DIR"

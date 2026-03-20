@@ -126,7 +126,7 @@ const updateHeartbeat = db.prepare(
 )
 
 const stopManagedSession = db.prepare(
-  `UPDATE managed_sessions SET status = 'stopped' WHERE id = ?`
+  `DELETE FROM managed_sessions WHERE id = ?`
 )
 
 const getActiveManagedSessions = db.prepare(
@@ -134,15 +134,11 @@ const getActiveManagedSessions = db.prepare(
 )
 
 const cleanupIdleSessions = db.prepare(
-  `UPDATE managed_sessions SET status = 'idle' WHERE status = 'active' AND last_heartbeat < ?`
+  `UPDATE managed_sessions SET status = 'idle' WHERE status IN ('active', 'waiting') AND last_heartbeat < ?`
 )
 
-const cleanupStoppedSessions = db.prepare(
-  `UPDATE managed_sessions SET status = 'stopped' WHERE status IN ('active', 'idle') AND last_heartbeat < ?`
-)
-
-const deleteOldSessions = db.prepare(
-  `DELETE FROM managed_sessions WHERE status = 'stopped' AND last_heartbeat < ?`
+const deleteStaleSession = db.prepare(
+  `DELETE FROM managed_sessions WHERE last_heartbeat < ?`
 )
 
 export interface ManagedSession {
@@ -179,9 +175,8 @@ export function listManagedSessions(): ManagedSession[] {
 
 export function cleanupManagedSessions(): void {
   const now = Math.floor(Date.now() / 1000)
-  cleanupIdleSessions.run(now - 300)    // 5 minutes
-  cleanupStoppedSessions.run(now - 1800) // 30 minutes
-  deleteOldSessions.run(now - 86400)     // 24 hours
+  cleanupIdleSessions.run(now - 300)       // 5 min no heartbeat → idle
+  deleteStaleSession.run(now - 1800)       // 30 min no heartbeat → remove
 }
 
 export default db

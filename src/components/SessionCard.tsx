@@ -1,4 +1,4 @@
-import { Monitor, Clock, Trash2, Terminal, AlertTriangle, Circle, Radio } from 'lucide-react'
+import { Monitor, Clock, Trash2, X, Terminal, AlertTriangle, Circle, Radio } from 'lucide-react'
 import type { Session } from '../types'
 
 const STATUS_CONFIG: Record<string, { color: string; bg: string; label: string; pulse: boolean }> = {
@@ -68,9 +68,9 @@ export default function SessionCard({ session, isSelected, onSelect, onKill, onS
               onKill()
             }}
             className="rounded p-1 text-gray-500 hover:bg-red-500/20 hover:text-red-400"
-            title="Kill session"
+            title={isLocal ? 'Dismiss session' : 'Kill session'}
           >
-            <Trash2 className="h-3.5 w-3.5" />
+            {isLocal ? <X className="h-3.5 w-3.5" /> : <Trash2 className="h-3.5 w-3.5" />}
           </button>
         </div>
       </div>

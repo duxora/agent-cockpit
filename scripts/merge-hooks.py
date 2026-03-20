@@ -42,6 +42,18 @@ COCKPIT_HOOKS = {
                 }
             ]
         }
+    ],
+    "SessionEnd": [
+        {
+            "matcher": "",
+            "hooks": [
+                {
+                    "type": "command",
+                    "command": f"{HOOK_DIR}/cockpit-session-end.sh",
+                    "timeout": 5
+                }
+            ]
+        }
     ]
 }
 

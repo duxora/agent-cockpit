@@ -1,4 +1,4 @@
-#!/usr/bin/env tsx
+#!/usr/bin/env -S npx tsx
 /**
  * Cockpit Relay — wraps any command in a PTY and streams I/O to the cockpit server.
  *
@@ -27,15 +27,34 @@ const CWD = process.cwd()
 const PROJECT_NAME = path.basename(CWD)
 
 // --- Parse args ---
-const args = process.argv.slice(2)
+const rawArgs = process.argv.slice(2)
+
+// Shortcut: --auto adds --dangerously-skip-permissions
+const hasAuto = rawArgs.includes('--auto')
+const args = rawArgs.filter((a) => a !== '--auto')
+
 if (args.length === 0) {
-  console.error('Usage: cockpit-relay <command> [args...]')
-  console.error('Example: cockpit-relay claude --dangerously-skip-permissions')
+  console.error(`Usage: cockpit-relay <command> [args...]
+
+Options:
+  --auto    Shortcut for --dangerously-skip-permissions
+
+Examples:
+  cockpit-relay claude                  Interactive session
+  cockpit-relay claude --auto           Auto-approve all permissions
+  cockpit-relay claude -r --auto        Resume last session with auto permissions
+  cockpit-relay claude -p "fix it"      One-shot prompt
+  cockpit-relay claude -r <session-id>  Resume specific session
+
+Environment:
+  COCKPIT_URL          Server URL (default: ${COCKPIT_URL})
+  COCKPIT_AUTH         Basic auth user:pass
+  COCKPIT_SESSION_ID   Override session ID (default: auto-generated)`)
   process.exit(1)
 }
 
 const command = args[0]
-const commandArgs = args.slice(1)
+const commandArgs = hasAuto ? [...args.slice(1), '--dangerously-skip-permissions'] : args.slice(1)
 
 // --- Register session with cockpit ---
 async function registerSession(): Promise<void> {

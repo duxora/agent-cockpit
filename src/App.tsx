@@ -47,11 +47,12 @@ export default function App() {
       .catch(() => {})
   }, [])
 
-  const handleKill = useCallback(async (name: string) => {
-    if (!confirm(`Kill session "${name}"?`)) return
-    await fetch(`/api/sessions/${encodeURIComponent(name)}`, { method: 'DELETE' })
-    const killed = sessions.find((s) => s.name === name)
-    if (selectedSession === (killed?.sessionId || name)) setSelectedSession(null)
+  const handleKill = useCallback(async (name: string, session?: Session) => {
+    const id = session?.source === 'local' && session.sessionId ? session.sessionId : name
+    const label = session?.source === 'local' ? 'Dismiss' : 'Kill'
+    if (!confirm(`${label} session "${name}"?`)) return
+    await fetch(`/api/sessions/${encodeURIComponent(id)}`, { method: 'DELETE' })
+    if (selectedSession === (session?.sessionId || name)) setSelectedSession(null)
   }, [selectedSession])
 
   const handleCreate = useCallback(async (name: string, command: string, cwd: string) => {
@@ -225,7 +226,7 @@ export default function App() {
                     session={session}
                     isSelected={selectedSession === (session.sessionId || session.name)}
                     onSelect={() => setSelectedSession(session.sessionId || session.name)}
-                    onKill={() => handleKill(session.name)}
+                    onKill={() => handleKill(session.name, session)}
                     onSendKeys={(keys) => handleSendKeys(session.name, keys)}
                   />
                 ))
