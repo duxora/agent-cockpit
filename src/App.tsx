@@ -239,6 +239,9 @@ export default function App() {
                 (() => {
                   const selected = sessions.find((s) => (s.sessionId || s.name) === selectedSession)
                   if (!selected) return <div className="flex h-full items-center justify-center text-gray-600"><p className="text-sm">Session not found</p></div>
+                  if (selected.source === 'local' && selected.relayConnected) {
+                    return <TerminalView sessionName={selected.sessionId || selected.name} />
+                  }
                   if (selected.source === 'local') return <LocalSessionDetail session={selected} />
                   return <TerminalView sessionName={selected.name} />
                 })()

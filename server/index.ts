@@ -273,10 +273,25 @@ app.get('*', (_req, res) => {
 
 const wss = new WebSocketServer({ noServer: true })
 
+// --- Relay connections (local PTY → server → browser) ---
+// Key: sessionId, Value: { relay WebSocket, connected browser WebSockets }
+const relayConnections = new Map<string, {
+  relay: WebSocket
+  browsers: Set<WebSocket>
+  outputBuffer: string[]  // last N chunks for replay on browser connect
+}>()
+
+const RELAY_BUFFER_MAX = 500 // keep last 500 output chunks for replay
+
 // Broadcast session updates to all connected clients
 function broadcastSessions() {
   const all = getMergedSessions()
-  const msg = JSON.stringify({ type: 'sessions', data: all })
+  // Annotate sessions with relay status
+  const annotated = all.map((s) => ({
+    ...s,
+    relayConnected: 'sessionId' in s && s.sessionId ? relayConnections.has(s.sessionId) : false,
+  }))
+  const msg = JSON.stringify({ type: 'sessions', data: annotated })
   wss.clients.forEach((client) => {
     if (client.readyState === WebSocket.OPEN) {
       client.send(msg)
@@ -292,13 +307,16 @@ setInterval(cleanupManagedSessions, 60000)
 
 wss.on('connection', (ws) => {
   // Send initial session list on connect
-  const sessions = listSessions()
-  ws.send(JSON.stringify({ type: 'sessions', data: sessions }))
+  ws.send(JSON.stringify({ type: 'sessions', data: getMergedSessions().map((s) => ({
+    ...s,
+    relayConnected: 'sessionId' in s && s.sessionId ? relayConnections.has(s.sessionId) : false,
+  })) }))
 })
 
-// --- Terminal WebSocket ---
+// --- Terminal + Relay WebSocket ---
 
 const termWss = new WebSocketServer({ noServer: true })
+const relayWss = new WebSocketServer({ noServer: true })
 
 server.on('upgrade', (request, socket, head) => {
   // Check basic auth on WebSocket upgrade if enabled
@@ -323,6 +341,10 @@ server.on('upgrade', (request, socket, head) => {
     wss.handleUpgrade(request, socket, head, (ws) => {
       wss.emit('connection', ws, request)
     })
+  } else if (url.pathname.startsWith('/ws/relay/')) {
+    relayWss.handleUpgrade(request, socket, head, (ws) => {
+      relayWss.emit('connection', ws, request)
+    })
   } else if (url.pathname.startsWith('/ws/terminal/')) {
     termWss.handleUpgrade(request, socket, head, (ws) => {
       termWss.emit('connection', ws, request)
@@ -332,29 +354,114 @@ server.on('upgrade', (request, socket, head) => {
   }
 })
 
+// --- Relay WebSocket (local PTY connects here) ---
+
+relayWss.on('connection', (ws, request) => {
+  const url = new URL(request.url || '', `http://localhost:${PORT}`)
+  const sessionId = decodeURIComponent(url.pathname.replace('/ws/relay/', ''))
+
+  console.log(`[relay] Connected: ${sessionId}`)
+
+  const conn = { relay: ws, browsers: new Set<WebSocket>(), outputBuffer: [] as string[] }
+  relayConnections.set(sessionId, conn)
+  broadcastSessions()
+
+  ws.on('message', (data) => {
+    try {
+      const msg = JSON.parse(data.toString())
+      if (msg.type === 'output') {
+        // Store in buffer for replay
+        conn.outputBuffer.push(msg.data)
+        if (conn.outputBuffer.length > RELAY_BUFFER_MAX) {
+          conn.outputBuffer.shift()
+        }
+        // Forward to all connected browsers
+        const fwd = JSON.stringify({ type: 'output', data: msg.data })
+        conn.browsers.forEach((browser) => {
+          if (browser.readyState === WebSocket.OPEN) {
+            browser.send(fwd)
+          }
+        })
+      } else if (msg.type === 'resize') {
+        // Forward resize to browsers
+        const fwd = JSON.stringify(msg)
+        conn.browsers.forEach((browser) => {
+          if (browser.readyState === WebSocket.OPEN) {
+            browser.send(fwd)
+          }
+        })
+      }
+    } catch {
+      // ignore
+    }
+  })
+
+  ws.on('close', () => {
+    console.log(`[relay] Disconnected: ${sessionId}`)
+    // Notify browsers
+    conn.browsers.forEach((browser) => {
+      if (browser.readyState === WebSocket.OPEN) {
+        browser.send(JSON.stringify({ type: 'relay-disconnected' }))
+      }
+    })
+    relayConnections.delete(sessionId)
+    broadcastSessions()
+  })
+})
+
+// --- Terminal WebSocket (browser connects here) ---
+
 termWss.on('connection', (ws, request) => {
   const url = new URL(request.url || '', `http://localhost:${PORT}`)
-  const sessionName = decodeURIComponent(url.pathname.replace('/ws/terminal/', ''))
+  const sessionKey = decodeURIComponent(url.pathname.replace('/ws/terminal/', ''))
 
-  if (!sessionExists(sessionName)) {
-    ws.send(JSON.stringify({ type: 'error', message: `Session "${sessionName}" not found` }))
+  // Check if this is a relay session
+  const relayConn = relayConnections.get(sessionKey)
+  if (relayConn) {
+    // --- Relay mode: bridge browser ↔ relay ---
+    relayConn.browsers.add(ws)
+    console.log(`[relay] Browser attached to relay: ${sessionKey}`)
+
+    // Replay buffered output so browser sees recent history
+    if (relayConn.outputBuffer.length > 0) {
+      const replay = relayConn.outputBuffer.join('')
+      ws.send(JSON.stringify({ type: 'output', data: replay }))
+    }
+
+    // Browser input → relay → PTY
+    ws.on('message', (data) => {
+      if (relayConn.relay.readyState === WebSocket.OPEN) {
+        relayConn.relay.send(data.toString())
+      }
+    })
+
+    ws.on('close', () => {
+      relayConn.browsers.delete(ws)
+      console.log(`[relay] Browser detached from relay: ${sessionKey}`)
+    })
+    return
+  }
+
+  // --- Tmux mode (existing behavior) ---
+  if (!sessionExists(sessionKey)) {
+    ws.send(JSON.stringify({ type: 'error', message: `Session "${sessionKey}" not found` }))
     ws.close()
     return
   }
 
   // Send initial content
-  const content = getSessionContent(sessionName, 500)
+  const content = getSessionContent(sessionKey, 500)
   ws.send(JSON.stringify({ type: 'content', data: content }))
 
   // Poll for new content and send diffs
   let lastContent = content
   const pollInterval = setInterval(() => {
-    if (!sessionExists(sessionName)) {
+    if (!sessionExists(sessionKey)) {
       ws.send(JSON.stringify({ type: 'closed', message: 'Session ended' }))
       ws.close()
       return
     }
-    const newContent = getSessionContent(sessionName, 500)
+    const newContent = getSessionContent(sessionKey, 500)
     if (newContent !== lastContent) {
       lastContent = newContent
       ws.send(JSON.stringify({ type: 'content', data: newContent }))
@@ -365,13 +472,13 @@ termWss.on('connection', (ws, request) => {
     try {
       const msg = JSON.parse(data.toString())
       if (msg.type === 'input') {
-        sendKeys(sessionName, msg.data)
+        sendKeys(sessionKey, msg.data)
       } else if (msg.type === 'resize' && msg.cols && msg.rows) {
-        resizeSession(sessionName, msg.cols, msg.rows)
+        resizeSession(sessionKey, msg.cols, msg.rows)
       }
     } catch {
       // Send raw input as keys
-      sendKeys(sessionName, data.toString())
+      sendKeys(sessionKey, data.toString())
     }
   })
 

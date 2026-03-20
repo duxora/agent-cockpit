@@ -12,12 +12,16 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
-    "setup-hooks": "bash scripts/setup-hooks.sh"
+    "setup-hooks": "bash scripts/setup-hooks.sh",
+    "relay": "tsx relay/index.ts"
   },
   "dependencies": {
     "better-sqlite3": "^11.7.0",
     "express": "^4.21.0",
     "ws": "^8.18.0"
+  },
+  "optionalDependencies": {
+    "node-pty": "^1.0.0"
   },
   "devDependencies": {
     "@testing-library/jest-dom": "^6.9.1",

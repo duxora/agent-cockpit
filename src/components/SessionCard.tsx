@@ -1,4 +1,4 @@
-import { Monitor, Clock, Trash2, Terminal, AlertTriangle, Circle } from 'lucide-react'
+import { Monitor, Clock, Trash2, Terminal, AlertTriangle, Circle, Radio } from 'lucide-react'
 import type { Session } from '../types'
 
 const STATUS_CONFIG: Record<string, { color: string; bg: string; label: string; pulse: boolean }> = {
@@ -53,8 +53,13 @@ export default function SessionCard({ session, isSelected, onSelect, onKill, onS
             {cfg.label}
           </span>
           {isLocal && (
-            <span className="rounded bg-gray-700 px-1.5 py-0.5 text-[10px] text-gray-400">
-              Local
+            <span className={`flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] ${
+              session.relayConnected
+                ? 'bg-green-900/30 text-green-400'
+                : 'bg-gray-700 text-gray-400'
+            }`}>
+              {session.relayConnected && <Radio className="h-2.5 w-2.5" />}
+              {session.relayConnected ? 'Relay' : 'Local'}
             </span>
           )}
           <button

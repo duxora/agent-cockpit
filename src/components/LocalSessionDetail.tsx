@@ -94,10 +94,17 @@ export default function LocalSessionDetail({ session }: Props) {
         )}
       </div>
 
-      {/* Note about local sessions */}
-      <div className="mx-6 rounded-lg border border-blue-500/20 bg-blue-500/5 px-4 py-3">
-        <p className="text-xs text-blue-400">
-          This is a local Claude Code session registered via hooks. Terminal view is only available for tmux sessions created on the server.
+      {/* Relay instructions */}
+      <div className="mx-6 rounded-lg border border-blue-500/20 bg-blue-500/5 px-4 py-3 space-y-2">
+        <p className="text-xs text-blue-400 font-medium">No relay connected — terminal streaming is offline</p>
+        <p className="text-xs text-gray-400">
+          To stream this session's terminal to the dashboard, launch Claude with the relay wrapper:
+        </p>
+        <pre className="text-xs text-gray-300 bg-gray-800/50 rounded px-3 py-2 overflow-x-auto">
+          npx agent-cockpit relay claude [your args here]
+        </pre>
+        <p className="text-xs text-gray-500">
+          All Claude parameters work normally. The relay streams terminal I/O to the cockpit server.
         </p>
       </div>
 

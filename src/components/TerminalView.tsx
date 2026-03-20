@@ -67,8 +67,14 @@ export default function TerminalView({ sessionName }: Props) {
       try {
         const msg = JSON.parse(event.data)
         if (msg.type === 'content') {
+          // Tmux mode: full content snapshot
           term.clear()
           term.write(msg.data)
+        } else if (msg.type === 'output') {
+          // Relay mode: incremental PTY output
+          term.write(msg.data)
+        } else if (msg.type === 'relay-disconnected') {
+          term.writeln(`\r\n\x1b[33m[relay disconnected]\x1b[0m`)
         } else if (msg.type === 'error') {
           term.writeln(`\r\n\x1b[31mError: ${msg.message}\x1b[0m`)
         } else if (msg.type === 'closed') {

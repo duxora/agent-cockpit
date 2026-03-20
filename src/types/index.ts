@@ -8,6 +8,7 @@ export interface Session {
   cwd: string
   source: 'tmux' | 'local'
   sessionId?: string
+  relayConnected?: boolean
 }
 
 export interface SessionGroup {
