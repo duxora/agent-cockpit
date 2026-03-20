@@ -15,7 +15,11 @@ import {
   detectSessionState,
   resizeSession,
 } from './tmux.js'
-import { logEvent, getSessionEvents, getAllRecentEvents } from './db.js'
+import {
+  logEvent, getSessionEvents, getAllRecentEvents,
+  registerManagedSession, heartbeatManagedSession, endManagedSession,
+  listManagedSessions, cleanupManagedSessions
+} from './db.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const app = express()
@@ -30,7 +34,7 @@ const COCKPIT_PASSWORD = process.env.COCKPIT_PASSWORD
 
 if (COCKPIT_PASSWORD) {
   app.use((req, res, next) => {
-    if (req.path === '/health') return next()
+    if (req.path === '/health' || req.path.startsWith('/api/hooks/')) return next()
 
     const auth = req.headers.authorization
     if (!auth || !auth.startsWith('Basic ')) {
@@ -57,20 +61,41 @@ app.get('/health', (_req, res) => {
 const distPath = path.join(__dirname, '..', 'dist')
 app.use(express.static(distPath))
 
-// --- REST API ---
+// --- Merged Sessions Helper ---
 
-app.get('/api/sessions', (_req, res) => {
-  const sessions = listSessions()
-  // Enrich with content-based state detection
-  const enriched = sessions.map((s) => {
+function getMergedSessions() {
+  const tmuxSessions = listSessions()
+  const enrichedTmux = tmuxSessions.map((s) => {
     const content = getSessionContent(s.name, 30)
     const detectedState = detectSessionState(content)
     return {
       ...s,
       status: detectedState === 'waiting' ? 'waiting' : s.status,
+      source: 'tmux' as const,
     }
   })
-  res.json(enriched)
+
+  const managed = listManagedSessions()
+  const now = Math.floor(Date.now() / 1000)
+  const managedAsSessions = managed.map((m) => ({
+    name: m.name,
+    created: m.started_at,
+    attached: false,
+    lastActivity: m.last_heartbeat,
+    idleSecs: now - m.last_heartbeat,
+    status: m.status as 'active' | 'idle' | 'waiting' | 'dead',
+    cwd: m.cwd,
+    source: 'local' as const,
+    sessionId: m.id,
+  }))
+
+  return [...enrichedTmux, ...managedAsSessions]
+}
+
+// --- REST API ---
+
+app.get('/api/sessions', (_req, res) => {
+  res.json(getMergedSessions())
 })
 
 app.post('/api/sessions', (req, res) => {
@@ -150,6 +175,41 @@ app.get('/api/pick-folder', (_req, res) => {
   }
 })
 
+// --- Hook API (no auth required) ---
+
+app.post('/api/hooks/session-start', (req, res) => {
+  const { session_id, name, cwd, metadata } = req.body
+  if (!session_id || !name) {
+    res.status(400).json({ error: 'session_id and name are required' })
+    return
+  }
+  registerManagedSession(session_id, name, cwd || '~', metadata ? JSON.stringify(metadata) : undefined)
+  broadcastSessions()
+  res.json({ ok: true })
+})
+
+app.post('/api/hooks/heartbeat', (req, res) => {
+  const { session_id, status } = req.body
+  if (!session_id) {
+    res.status(400).json({ error: 'session_id is required' })
+    return
+  }
+  heartbeatManagedSession(session_id, status || 'active')
+  broadcastSessions()
+  res.json({ ok: true })
+})
+
+app.post('/api/hooks/session-end', (req, res) => {
+  const { session_id } = req.body
+  if (!session_id) {
+    res.status(400).json({ error: 'session_id is required' })
+    return
+  }
+  endManagedSession(session_id)
+  broadcastSessions()
+  res.json({ ok: true })
+})
+
 // SPA fallback
 app.get('*', (_req, res) => {
   res.sendFile(path.join(distPath, 'index.html'))
@@ -161,16 +221,8 @@ const wss = new WebSocketServer({ noServer: true })
 
 // Broadcast session updates to all connected clients
 function broadcastSessions() {
-  const sessions = listSessions()
-  const enriched = sessions.map((s) => {
-    const content = getSessionContent(s.name, 30)
-    const detectedState = detectSessionState(content)
-    return {
-      ...s,
-      status: detectedState === 'waiting' ? 'waiting' : s.status,
-    }
-  })
-  const msg = JSON.stringify({ type: 'sessions', data: enriched })
+  const all = getMergedSessions()
+  const msg = JSON.stringify({ type: 'sessions', data: all })
   wss.clients.forEach((client) => {
     if (client.readyState === WebSocket.OPEN) {
       client.send(msg)
@@ -180,6 +232,9 @@ function broadcastSessions() {
 
 // Poll sessions every 3 seconds
 setInterval(broadcastSessions, 3000)
+
+// Cleanup stale managed sessions every 60 seconds
+setInterval(cleanupManagedSessions, 60000)
 
 wss.on('connection', (ws) => {
   // Send initial session list on connect

@@ -21,6 +21,18 @@ db.exec(`
 
   CREATE INDEX IF NOT EXISTS idx_session_events_name ON session_events(session_name);
   CREATE INDEX IF NOT EXISTS idx_session_events_created ON session_events(created_at);
+
+  CREATE TABLE IF NOT EXISTS managed_sessions (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    cwd TEXT NOT NULL,
+    status TEXT DEFAULT 'active',
+    started_at INTEGER NOT NULL,
+    last_heartbeat INTEGER NOT NULL,
+    metadata TEXT
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_managed_sessions_status ON managed_sessions(status);
 `)
 
 export interface SessionEvent {
@@ -53,6 +65,72 @@ export function getSessionEvents(sessionName: string, limit = 50): SessionEvent[
 
 export function getAllRecentEvents(limit = 100): SessionEvent[] {
   return getRecentEvents.all(limit) as SessionEvent[]
+}
+
+// --- Managed Sessions (auto-linked Claude sessions) ---
+
+const upsertManagedSession = db.prepare(
+  `INSERT OR REPLACE INTO managed_sessions (id, name, cwd, status, started_at, last_heartbeat, metadata)
+   VALUES (?, ?, ?, 'active', ?, ?, ?)`
+)
+
+const updateHeartbeat = db.prepare(
+  `UPDATE managed_sessions SET last_heartbeat = ?, status = ? WHERE id = ?`
+)
+
+const stopManagedSession = db.prepare(
+  `UPDATE managed_sessions SET status = 'stopped' WHERE id = ?`
+)
+
+const getActiveManagedSessions = db.prepare(
+  `SELECT * FROM managed_sessions WHERE status != 'stopped' ORDER BY last_heartbeat DESC`
+)
+
+const cleanupIdleSessions = db.prepare(
+  `UPDATE managed_sessions SET status = 'idle' WHERE status = 'active' AND last_heartbeat < ?`
+)
+
+const cleanupStoppedSessions = db.prepare(
+  `UPDATE managed_sessions SET status = 'stopped' WHERE status IN ('active', 'idle') AND last_heartbeat < ?`
+)
+
+const deleteOldSessions = db.prepare(
+  `DELETE FROM managed_sessions WHERE status = 'stopped' AND last_heartbeat < ?`
+)
+
+export interface ManagedSession {
+  id: string
+  name: string
+  cwd: string
+  status: string
+  started_at: number
+  last_heartbeat: number
+  metadata: string | null
+}
+
+export function registerManagedSession(id: string, name: string, cwd: string, metadata?: string): void {
+  const now = Math.floor(Date.now() / 1000)
+  upsertManagedSession.run(id, name, cwd, now, now, metadata ?? null)
+}
+
+export function heartbeatManagedSession(id: string, status: string = 'active'): void {
+  const now = Math.floor(Date.now() / 1000)
+  updateHeartbeat.run(now, status, id)
+}
+
+export function endManagedSession(id: string): void {
+  stopManagedSession.run(id)
+}
+
+export function listManagedSessions(): ManagedSession[] {
+  return getActiveManagedSessions.all() as ManagedSession[]
+}
+
+export function cleanupManagedSessions(): void {
+  const now = Math.floor(Date.now() / 1000)
+  cleanupIdleSessions.run(now - 300)    // 5 minutes
+  cleanupStoppedSessions.run(now - 1800) // 30 minutes
+  deleteOldSessions.run(now - 86400)     // 24 hours
 }
 
 export default db

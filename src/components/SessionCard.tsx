@@ -1,11 +1,12 @@
 import { Monitor, Clock, Trash2, Terminal, AlertTriangle, Circle } from 'lucide-react'
 import type { Session } from '../types'
 
-const STATUS_CONFIG = {
+const STATUS_CONFIG: Record<string, { color: string; bg: string; label: string; pulse: boolean }> = {
   active: { color: 'text-green-400', bg: 'bg-green-500/20', label: 'Active', pulse: false },
   idle: { color: 'text-yellow-400', bg: 'bg-yellow-500/20', label: 'Idle', pulse: false },
   waiting: { color: 'text-red-400', bg: 'bg-red-500/20', label: 'Waiting', pulse: true },
   dead: { color: 'text-gray-500', bg: 'bg-gray-500/20', label: 'Dead', pulse: false },
+  stopped: { color: 'text-gray-500', bg: 'bg-gray-500/20', label: 'Stopped', pulse: false },
 }
 
 function formatDuration(secs: number): string {
@@ -28,12 +29,13 @@ interface Props {
 }
 
 export default function SessionCard({ session, isSelected, onSelect, onKill }: Props) {
-  const cfg = STATUS_CONFIG[session.status]
+  const cfg = STATUS_CONFIG[session.status] || STATUS_CONFIG.dead
+  const isLocal = session.source === 'local'
 
   return (
     <div
       onClick={onSelect}
-      className={`cursor-pointer rounded-lg border p-4 transition-all hover:border-blue-500/50 ${
+      className={`${isLocal ? 'cursor-default' : 'cursor-pointer'} rounded-lg border p-4 transition-all hover:border-blue-500/50 ${
         isSelected
           ? 'border-blue-500 bg-blue-500/10'
           : 'border-gray-700 bg-gray-900 hover:bg-gray-800/50'
@@ -49,6 +51,11 @@ export default function SessionCard({ session, isSelected, onSelect, onKill }: P
             <Circle className={`h-2 w-2 fill-current ${cfg.pulse ? 'animate-pulse' : ''}`} />
             {cfg.label}
           </span>
+          {isLocal && (
+            <span className="rounded bg-gray-700 px-1.5 py-0.5 text-[10px] text-gray-400">
+              Local
+            </span>
+          )}
           <button
             onClick={(e) => {
               e.stopPropagation()

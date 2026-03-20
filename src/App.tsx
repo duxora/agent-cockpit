@@ -64,6 +64,14 @@ export default function App() {
     setSessions(data)
   }, [])
 
+  const sortedSessions = [...sessions].sort((a, b) => {
+    const priority: Record<string, number> = { waiting: 0, active: 1, idle: 2, stopped: 3, dead: 4 }
+    const pa = priority[a.status] ?? 5
+    const pb = priority[b.status] ?? 5
+    if (pa !== pb) return pa - pb
+    return b.lastActivity - a.lastActivity
+  })
+
   const waitingCount = sessions.filter((s) => s.status === 'waiting').length
   const activeCount = sessions.filter((s) => s.status === 'active').length
 
@@ -146,12 +154,15 @@ export default function App() {
                   </button>
                 </div>
               ) : (
-                sessions.map((session) => (
+                sortedSessions.map((session) => (
                   <SessionCard
-                    key={session.name}
+                    key={session.sessionId || session.name}
                     session={session}
-                    isSelected={selectedSession === session.name}
-                    onSelect={() => setSelectedSession(session.name)}
+                    isSelected={selectedSession === session.name && session.source !== 'local'}
+                    onSelect={() => {
+                      if (session.source === 'local') return
+                      setSelectedSession(session.name)
+                    }}
                     onKill={() => handleKill(session.name)}
                   />
                 ))
@@ -172,7 +183,7 @@ export default function App() {
         ) : (
           /* Split view - multiple terminals */
           <div className="flex-1 grid grid-cols-2 gap-px bg-gray-800">
-            {sessions.slice(0, 4).map((session) => (
+            {sortedSessions.filter((s) => s.source !== 'local').slice(0, 4).map((session) => (
               <div key={session.name} className="bg-[#0a0a0a]">
                 <TerminalView sessionName={session.name} />
               </div>

@@ -9,7 +9,8 @@
     "dev:client": "vite",
     "build": "vite build",
     "start": "tsx server/index.ts",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "setup-hooks": "bash scripts/setup-hooks.sh"
   },
   "dependencies": {
     "better-sqlite3": "^11.7.0",

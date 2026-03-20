@@ -4,8 +4,10 @@ export interface Session {
   attached: boolean
   lastActivity: number
   idleSecs: number
-  status: 'active' | 'idle' | 'waiting' | 'dead'
+  status: 'active' | 'idle' | 'waiting' | 'dead' | 'stopped'
   cwd: string
+  source: 'tmux' | 'local'
+  sessionId?: string
 }
 
 export interface SessionEvent {
