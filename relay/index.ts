@@ -78,8 +78,10 @@ async function endSession(): Promise<void> {
   }
 }
 
-// --- Connect relay WebSocket ---
-function connectRelay(ptyProcess: pty.IPty): WebSocket {
+// --- Mutable WS reference for relay ---
+let activeWs: WebSocket | null = null
+
+function connectRelay(ptyProcess: pty.IPty): void {
   const wsProto = COCKPIT_URL.startsWith('https') ? 'wss' : 'ws'
   const wsHost = COCKPIT_URL.replace(/^https?:\/\//, '')
   const wsUrl = `${wsProto}://${wsHost}/ws/relay/${encodeURIComponent(SESSION_ID)}`
@@ -88,8 +90,8 @@ function connectRelay(ptyProcess: pty.IPty): WebSocket {
   const ws = new WebSocket(wsUrl, { headers: { Authorization: authHeader } })
 
   ws.on('open', () => {
+    activeWs = ws
     console.error(`[relay] Connected to cockpit (session: ${SESSION_ID})`)
-    // Send initial terminal size
     ws.send(JSON.stringify({
       type: 'resize',
       cols: ptyProcess.cols,
@@ -111,23 +113,14 @@ function connectRelay(ptyProcess: pty.IPty): WebSocket {
   })
 
   ws.on('close', () => {
+    activeWs = null
     console.error('[relay] Disconnected from cockpit, reconnecting in 3s...')
-    setTimeout(() => {
-      const newWs = connectRelay(ptyProcess)
-      // Re-pipe PTY output to new WS
-      ptyProcess.onData((data) => {
-        if (newWs.readyState === WebSocket.OPEN) {
-          newWs.send(JSON.stringify({ type: 'output', data }))
-        }
-      })
-    }, 3000)
+    setTimeout(() => connectRelay(ptyProcess), 3000)
   })
 
   ws.on('error', (err) => {
     console.error(`[relay] WebSocket error: ${err.message}`)
   })
-
-  return ws
 }
 
 // --- Main ---
@@ -152,13 +145,13 @@ async function main() {
   console.error('')
 
   // Connect relay WS
-  const ws = connectRelay(ptyProcess)
+  connectRelay(ptyProcess)
 
   // PTY output → local stdout + relay WS
   ptyProcess.onData((data) => {
     process.stdout.write(data)
-    if (ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ type: 'output', data }))
+    if (activeWs && activeWs.readyState === WebSocket.OPEN) {
+      activeWs.send(JSON.stringify({ type: 'output', data }))
     }
   })
 
@@ -176,8 +169,8 @@ async function main() {
     const newCols = process.stdout.columns || 80
     const newRows = process.stdout.rows || 24
     ptyProcess.resize(newCols, newRows)
-    if (ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ type: 'resize', cols: newCols, rows: newRows }))
+    if (activeWs && activeWs.readyState === WebSocket.OPEN) {
+      activeWs.send(JSON.stringify({ type: 'resize', cols: newCols, rows: newRows }))
     }
   })
 
@@ -185,7 +178,7 @@ async function main() {
   ptyProcess.onExit(async ({ exitCode }) => {
     console.error(`\n[relay] Process exited with code ${exitCode}`)
     await endSession()
-    ws.close()
+    activeWs?.close()
     process.exit(exitCode)
   })
 
@@ -193,7 +186,7 @@ async function main() {
   const cleanup = async () => {
     ptyProcess.kill()
     await endSession()
-    ws.close()
+    activeWs?.close()
     process.exit(0)
   }
   process.on('SIGINT', cleanup)
