@@ -1,0 +1,198 @@
+import { useState, useEffect, useCallback } from 'react'
+import { Plus, LayoutGrid, Rows3, RefreshCw } from 'lucide-react'
+import SessionCard from './components/SessionCard'
+import TerminalView from './components/TerminalView'
+import NewSessionModal from './components/NewSessionModal'
+import { useWebSocket } from './hooks/useWebSocket'
+import type { Session } from './types'
+
+export default function App() {
+  const [sessions, setSessions] = useState<Session[]>([])
+  const [selectedSession, setSelectedSession] = useState<string | null>(null)
+  const [showNewModal, setShowNewModal] = useState(false)
+  const [viewMode, setViewMode] = useState<'grid' | 'split'>('grid')
+
+  // WebSocket for real-time session updates
+  const { data: wsMessage, connected } = useWebSocket<{ type: string; data: Session[] }>('/ws/events')
+
+  useEffect(() => {
+    if (wsMessage?.type === 'sessions') {
+      setSessions(wsMessage.data)
+
+      // Update document title if any session is waiting
+      const waiting = wsMessage.data.filter((s) => s.status === 'waiting')
+      if (waiting.length > 0) {
+        document.title = `(${waiting.length}) Agent Cockpit`
+      } else {
+        document.title = 'Agent Cockpit'
+      }
+    }
+  }, [wsMessage])
+
+  // Initial fetch
+  useEffect(() => {
+    fetch('/api/sessions')
+      .then((r) => r.json())
+      .then(setSessions)
+      .catch(() => {})
+  }, [])
+
+  const handleKill = useCallback(async (name: string) => {
+    if (!confirm(`Kill session "${name}"?`)) return
+    await fetch(`/api/sessions/${encodeURIComponent(name)}`, { method: 'DELETE' })
+    if (selectedSession === name) setSelectedSession(null)
+  }, [selectedSession])
+
+  const handleCreate = useCallback(async (name: string, command: string, cwd: string) => {
+    const res = await fetch('/api/sessions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, command, cwd }),
+    })
+    if (res.ok) {
+      setShowNewModal(false)
+      setSelectedSession(name)
+    } else {
+      const err = await res.json()
+      alert(err.error || 'Failed to create session')
+    }
+  }, [])
+
+  const handleRefresh = useCallback(async () => {
+    const res = await fetch('/api/sessions')
+    const data = await res.json()
+    setSessions(data)
+  }, [])
+
+  const waitingCount = sessions.filter((s) => s.status === 'waiting').length
+  const activeCount = sessions.filter((s) => s.status === 'active').length
+
+  return (
+    <div className="flex h-screen flex-col">
+      {/* Header */}
+      <header className="flex items-center justify-between border-b border-gray-800 px-6 py-3">
+        <div className="flex items-center gap-3">
+          <span className="text-xl">🎛️</span>
+          <h1 className="text-lg font-semibold text-gray-100">Agent Cockpit</h1>
+          <div className="flex items-center gap-2 ml-4">
+            <span className={`h-2 w-2 rounded-full ${connected ? 'bg-green-500' : 'bg-red-500'}`} />
+            <span className="text-xs text-gray-500">{connected ? 'Live' : 'Offline'}</span>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-3">
+          {/* Stats */}
+          <div className="flex items-center gap-4 mr-4 text-xs">
+            <span className="text-gray-500">
+              <span className="text-gray-300 font-medium">{sessions.length}</span> sessions
+            </span>
+            {activeCount > 0 && (
+              <span className="text-green-400">{activeCount} active</span>
+            )}
+            {waitingCount > 0 && (
+              <span className="animate-pulse text-red-400">{waitingCount} waiting</span>
+            )}
+          </div>
+
+          {/* View toggle */}
+          <div className="flex rounded-lg border border-gray-700">
+            <button
+              onClick={() => setViewMode('grid')}
+              className={`rounded-l-lg p-1.5 ${viewMode === 'grid' ? 'bg-gray-700 text-gray-200' : 'text-gray-500 hover:text-gray-300'}`}
+            >
+              <LayoutGrid className="h-4 w-4" />
+            </button>
+            <button
+              onClick={() => setViewMode('split')}
+              className={`rounded-r-lg p-1.5 ${viewMode === 'split' ? 'bg-gray-700 text-gray-200' : 'text-gray-500 hover:text-gray-300'}`}
+            >
+              <Rows3 className="h-4 w-4" />
+            </button>
+          </div>
+
+          <button
+            onClick={handleRefresh}
+            className="rounded-lg p-2 text-gray-400 hover:bg-gray-800 hover:text-gray-200"
+            title="Refresh"
+          >
+            <RefreshCw className="h-4 w-4" />
+          </button>
+
+          <button
+            onClick={() => setShowNewModal(true)}
+            className="flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-500"
+          >
+            <Plus className="h-4 w-4" />
+            New Session
+          </button>
+        </div>
+      </header>
+
+      {/* Main content */}
+      <div className="flex flex-1 overflow-hidden">
+        {viewMode === 'grid' ? (
+          <>
+            {/* Session list */}
+            <div className="w-80 overflow-y-auto border-r border-gray-800 p-4 space-y-3">
+              {sessions.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-20 text-gray-600">
+                  <span className="text-4xl mb-3">🎛️</span>
+                  <p className="text-sm">No sessions running</p>
+                  <button
+                    onClick={() => setShowNewModal(true)}
+                    className="mt-3 text-sm text-blue-500 hover:text-blue-400"
+                  >
+                    Create one
+                  </button>
+                </div>
+              ) : (
+                sessions.map((session) => (
+                  <SessionCard
+                    key={session.name}
+                    session={session}
+                    isSelected={selectedSession === session.name}
+                    onSelect={() => setSelectedSession(session.name)}
+                    onKill={() => handleKill(session.name)}
+                  />
+                ))
+              )}
+            </div>
+
+            {/* Terminal view */}
+            <div className="flex-1 bg-[#0a0a0a]">
+              {selectedSession ? (
+                <TerminalView sessionName={selectedSession} />
+              ) : (
+                <div className="flex h-full items-center justify-center text-gray-600">
+                  <p className="text-sm">Select a session to view its terminal</p>
+                </div>
+              )}
+            </div>
+          </>
+        ) : (
+          /* Split view - multiple terminals */
+          <div className="flex-1 grid grid-cols-2 gap-px bg-gray-800">
+            {sessions.slice(0, 4).map((session) => (
+              <div key={session.name} className="bg-[#0a0a0a]">
+                <TerminalView sessionName={session.name} />
+              </div>
+            ))}
+            {sessions.length === 0 && (
+              <div className="col-span-2 flex h-full items-center justify-center text-gray-600">
+                <p className="text-sm">No sessions to display</p>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* New session modal */}
+      {showNewModal && (
+        <NewSessionModal
+          onClose={() => setShowNewModal(false)}
+          onCreate={handleCreate}
+        />
+      )}
+    </div>
+  )
+}
