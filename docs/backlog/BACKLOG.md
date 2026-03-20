@@ -10,16 +10,17 @@
 
 ## P0 — Critical
 
-### 1. Auto-Link Local Claude Sessions via Hooks
+### ~~1. Auto-Link Local Claude Sessions via Hooks~~ ✅ DONE
+**Status:** Implemented in commit db8278d (2026-03-20)
 **File:** [../superpowers/specs/2026-03-20-auto-link-claude-sessions-design.md](../superpowers/specs/2026-03-20-auto-link-claude-sessions-design.md)
-**Summary:** Claude Code hooks auto-register sessions with cockpit on start, send heartbeats, and signal permission prompts. No manual session creation needed for local sessions.
-**Why P0:** Without this, the cockpit only shows manually-created tmux sessions — most Claude usage is invisible.
 
 ### 2. Push Notifications for Waiting Sessions
-**Summary:** Send browser push notifications (and optionally Slack/webhook) when any session enters "waiting" state. Include session name, project, and what it's waiting for.
+**Summary:** Send browser push notifications (and optionally Telegram/Slack/webhook) when any session enters "waiting" state. Include session name, project, and what it's waiting for.
 **Why P0:** The whole point of a cockpit is to not have to stare at it. If Claude needs input at 2am, you need a ping.
+**Inspiration:** remote-web-claude-cli uses Browser Notification API + Telegram Bot API for mobile push.
 **Scope:**
-- Browser Notification API (requires one-time permission grant)
+- Browser Notification API (requires one-time permission grant, trigger when tab hidden)
+- Telegram Bot API integration (TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID env vars)
 - Optional: webhook URL for Slack/Discord integration
 - Configurable: per-session or global notification preferences
 - Debounce: don't spam if session rapidly toggles waiting/active
@@ -84,7 +85,16 @@
 
 ## P2 — Medium
 
-### 9. Session Output Log & Search
+### 9. Ring Buffer for Terminal Output Replay
+**Summary:** Keep a circular buffer (1MB per session) of terminal output. Replay on reconnect or tab switch so the user instantly sees recent output instead of a blank terminal.
+**Inspiration:** remote-web-claude-cli's `RingBuffer` replays full output on WebSocket reconnect.
+**Scope:**
+- Server-side ring buffer per active tmux session (1MB circular, configurable)
+- On WebSocket connect, replay buffered output before live polling
+- Connection status overlay: hidden → "Disconnected" (red) → "Reconnecting..." (amber)
+- Exponential backoff reconnection (1s initial, 30s max, with ping keepalive)
+
+### 10. Session Output Log & Search
 **Summary:** Persist terminal output to DB. Search across all sessions for specific text (file names, error messages, commands).
 **Scope:**
 - Capture and store terminal snapshots periodically (every 30s)
@@ -92,7 +102,7 @@
 - Search results link to session + timestamp
 - Storage limit: keep last 24h of output per session, configurable
 
-### 10. Project-Aware Session Grouping
+### 11. Project-Aware Session Grouping
 **Summary:** Group sessions by project (detected from cwd). Show project-level status summary.
 **Scope:**
 - Auto-detect project from cwd (look for .git, package.json, etc.)
@@ -100,7 +110,7 @@
 - Project status badge: "2 active, 1 waiting"
 - Project-level actions: kill all, pause all
 
-### 11. Session Cost/Usage Tracking
+### 12. Session Cost/Usage Tracking
 **Summary:** Track token usage and estimated cost per session. Show in session card and aggregate dashboard.
 **Scope:**
 - Hook captures usage data from Claude Code (if exposed in hook payload)
@@ -108,7 +118,7 @@
 - Display: tokens in/out, estimated cost, session duration
 - Daily/weekly usage summary
 
-### 12. Mobile-Responsive Layout
+### 13. Mobile-Responsive Layout
 **Summary:** Make the dashboard usable on phone screens. Primary use: check status and approve permissions on the go.
 **Scope:**
 - Responsive breakpoints for session list (full-width cards on mobile)
@@ -116,7 +126,7 @@
 - Bottom nav bar on mobile (Sessions, Notifications, Settings)
 - Terminal view: read-only on mobile (keyboard input impractical)
 
-### 13. Dark/Light Theme Toggle
+### 14. Dark/Light Theme Toggle
 **Summary:** Currently hardcoded dark theme. Add light theme option.
 **Scope:**
 - CSS variables for theme colors
@@ -124,7 +134,7 @@
 - Persist preference in localStorage
 - System preference detection (prefers-color-scheme)
 
-### 14. Session Environment Variables
+### 15. Session Environment Variables
 **Summary:** Set custom env vars when creating a session. Useful for passing API keys, config, etc.
 **Scope:**
 - Key-value input fields in NewSessionModal
@@ -136,7 +146,7 @@
 
 ## P3 — Low / Future
 
-### 15. Session Replay
+### 16. Session Replay
 **Summary:** Record and replay terminal sessions. Useful for demos, debugging, sharing.
 **Scope:**
 - Record terminal output with timestamps (asciicast format)
@@ -144,7 +154,7 @@
 - Export as .cast file (asciinema compatible)
 - Share link for recorded sessions
 
-### 16. Multi-Machine Support
+### 17. Multi-Machine Support
 **Summary:** Connect cockpit to multiple machines (local + N remote). Unified dashboard across all.
 **Scope:**
 - Machine registry (name, URL, auth)
@@ -152,14 +162,14 @@
 - Machine health status
 - Per-machine session creation
 
-### 17. API Key / Auth Management
+### 18. API Key / Auth Management
 **Summary:** Manage multiple auth methods (API keys, OAuth tokens) for different Claude configurations.
 **Scope:**
 - Named credential store (encrypted at rest)
 - Select credentials when creating session
 - Token expiry tracking and renewal reminders
 
-### 18. Session Collaboration
+### 19. Session Collaboration
 **Summary:** Share a session view with another user. Read-only spectator mode.
 **Scope:**
 - Shareable session URL with temporary access token
@@ -167,7 +177,7 @@
 - Viewer presence indicators
 - Chat/annotation overlay
 
-### 19. Scheduled Sessions
+### 20. Scheduled Sessions
 **Summary:** Create sessions that start at a specific time or on a cron schedule.
 **Scope:**
 - Schedule picker in NewSessionModal
@@ -175,7 +185,16 @@
 - Queue display showing upcoming scheduled sessions
 - Auto-kill after timeout (prevent runaway sessions)
 
-### 20. Plugin System for Session Types
+### 21. Localhost Service Proxy
+**Summary:** Reverse proxy that forwards agent-spawned dev servers (localhost:PORT) through cockpit's domain. Access agent-started apps without direct machine access.
+**Inspiration:** remote-web-claude-cli's `inject-proxy.ts` rewrites localhost URLs via `/_s/PORT/` paths.
+**Scope:**
+- Proxy endpoint: `GET /_s/:port/*` forwards to `localhost:port`
+- Rewrite HTML/JS responses to route API calls through cockpit origin
+- Auth: same basic auth as cockpit
+- Use case: preview agent-built UIs remotely
+
+### 22. Plugin System for Session Types
 **Summary:** Extensible session type system beyond Claude Code. Support Cursor, Copilot, custom agents.
 **Scope:**
 - Plugin interface: session creation, status detection, content capture
