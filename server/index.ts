@@ -198,6 +198,26 @@ app.delete('/api/templates/:id', (req, res) => {
   res.json({ ok })
 })
 
+// --- Settings API ---
+
+app.post('/api/settings/claude-token', (req, res) => {
+  const { token } = req.body
+  if (!token || !token.startsWith('sk-ant-oat')) {
+    res.status(400).json({ error: 'Invalid token format (must start with sk-ant-oat)' })
+    return
+  }
+  // Update the env var for current process
+  process.env.CLAUDE_CODE_AUTH_TOKEN = token
+  // Try to persist via Railway CLI if available
+  try {
+    execSync(`railway variable set CLAUDE_CODE_AUTH_TOKEN="${token}" 2>/dev/null`, { timeout: 10000 })
+    res.json({ ok: true, message: 'Token updated via Railway CLI' })
+  } catch {
+    // Railway CLI not available — just update process env
+    res.json({ ok: true, message: 'Token updated for current process (Railway CLI not available)' })
+  }
+})
+
 // --- Hook API (no auth required) ---
 
 app.post('/api/hooks/session-start', (req, res) => {

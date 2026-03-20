@@ -1,8 +1,9 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Plus, LayoutGrid, Rows3, RefreshCw, Search } from 'lucide-react'
+import { Plus, LayoutGrid, Rows3, RefreshCw, Search, Settings } from 'lucide-react'
 import SessionCard from './components/SessionCard'
 import TerminalView from './components/TerminalView'
 import NewSessionModal from './components/NewSessionModal'
+import SettingsModal from './components/SettingsModal'
 import { useWebSocket } from './hooks/useWebSocket'
 import { useNotifications } from './hooks/useNotifications'
 import type { Session } from './types'
@@ -11,7 +12,9 @@ export default function App() {
   const [sessions, setSessions] = useState<Session[]>([])
   const [selectedSession, setSelectedSession] = useState<string | null>(null)
   const [showNewModal, setShowNewModal] = useState(false)
+  const [showSettings, setShowSettings] = useState(false)
   const [viewMode, setViewMode] = useState<'grid' | 'split'>('grid')
+  const [splitLayout, setSplitLayout] = useState<'1x2' | '2x2' | '1x3' | '2x3'>('2x2')
   const [searchQuery, setSearchQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState<string>('all')
 
@@ -150,6 +153,14 @@ export default function App() {
           </button>
 
           <button
+            onClick={() => setShowSettings(true)}
+            className="rounded-lg p-2 text-gray-400 hover:bg-gray-800 hover:text-gray-200"
+            title="Settings"
+          >
+            <Settings className="h-4 w-4" />
+          </button>
+
+          <button
             onClick={() => setShowNewModal(true)}
             className="flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-500"
           >
@@ -235,18 +246,43 @@ export default function App() {
             </div>
           </>
         ) : (
-          /* Split view - multiple terminals */
-          <div className="flex-1 grid grid-cols-2 gap-px bg-gray-800">
-            {sortedSessions.filter((s) => s.source !== 'local').slice(0, 4).map((session) => (
-              <div key={session.name} className="bg-[#0a0a0a]">
-                <TerminalView sessionName={session.name} />
-              </div>
-            ))}
-            {sessions.length === 0 && (
-              <div className="col-span-2 flex h-full items-center justify-center text-gray-600">
-                <p className="text-sm">No sessions to display</p>
-              </div>
-            )}
+          /* Split view - configurable grid */
+          <div className="flex-1 flex flex-col">
+            <div className="flex items-center gap-2 border-b border-gray-800 px-4 py-1.5">
+              <span className="text-xs text-gray-500">Layout:</span>
+              {(['1x2', '2x2', '1x3', '2x3'] as const).map((layout) => (
+                <button
+                  key={layout}
+                  onClick={() => setSplitLayout(layout)}
+                  className={`rounded px-2 py-0.5 text-[10px] font-medium ${
+                    splitLayout === layout ? 'bg-blue-500/20 text-blue-400' : 'text-gray-500 hover:text-gray-300'
+                  }`}
+                >
+                  {layout}
+                </button>
+              ))}
+            </div>
+            <div className={`flex-1 grid gap-px bg-gray-800 ${
+              splitLayout === '1x2' ? 'grid-cols-2 grid-rows-1' :
+              splitLayout === '2x2' ? 'grid-cols-2 grid-rows-2' :
+              splitLayout === '1x3' ? 'grid-cols-3 grid-rows-1' :
+              'grid-cols-3 grid-rows-2'
+            }`}>
+              {(() => {
+                const maxSlots = splitLayout === '1x2' ? 2 : splitLayout === '2x2' ? 4 : splitLayout === '1x3' ? 3 : 6
+                const tmuxSessions = sortedSessions.filter((s) => s.source !== 'local')
+                return tmuxSessions.slice(0, maxSlots).map((session) => (
+                  <div key={session.name} className="bg-[#0a0a0a]">
+                    <TerminalView sessionName={session.name} />
+                  </div>
+                ))
+              })()}
+              {sessions.length === 0 && (
+                <div className="col-span-full flex h-full items-center justify-center text-gray-600">
+                  <p className="text-sm">No sessions to display</p>
+                </div>
+              )}
+            </div>
           </div>
         )}
       </div>
@@ -257,6 +293,11 @@ export default function App() {
           onClose={() => setShowNewModal(false)}
           onCreate={handleCreate}
         />
+      )}
+
+      {/* Settings modal */}
+      {showSettings && (
+        <SettingsModal onClose={() => setShowSettings(false)} />
       )}
     </div>
   )
