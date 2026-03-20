@@ -43,6 +43,36 @@ db.exec(`
     category TEXT DEFAULT 'general',
     created_at INTEGER NOT NULL DEFAULT (unixepoch())
   );
+
+  CREATE TABLE IF NOT EXISTS deployments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    railway_deployment_id TEXT UNIQUE NOT NULL,
+    service_id TEXT NOT NULL,
+    status TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    trigger TEXT,
+    commit_sha TEXT,
+    branch TEXT,
+    metadata TEXT
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_deployments_service_id ON deployments(service_id);
+  CREATE INDEX IF NOT EXISTS idx_deployments_status ON deployments(status);
+
+  CREATE TABLE IF NOT EXISTS service_metrics (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    service_id TEXT NOT NULL,
+    timestamp INTEGER NOT NULL,
+    cpu_percent REAL,
+    memory_mb REAL,
+    uptime_seconds INTEGER,
+    request_count INTEGER,
+    error_count INTEGER,
+    metadata TEXT
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_service_metrics_service_id ON service_metrics(service_id, timestamp);
 `)
 
 export interface SessionEvent {
@@ -177,6 +207,107 @@ export function cleanupManagedSessions(): void {
   const now = Math.floor(Date.now() / 1000)
   cleanupIdleSessions.run(now - 300)       // 5 min no heartbeat → idle
   deleteStaleSession.run(now - 1800)       // 30 min no heartbeat → remove
+}
+
+// --- Deployments ---
+
+const upsertDeployment = db.prepare(`
+  INSERT OR REPLACE INTO deployments (railway_deployment_id, service_id, status, created_at, updated_at, trigger, commit_sha, branch, metadata)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+`)
+
+const getRecentDeployments = db.prepare(`
+  SELECT * FROM deployments
+  WHERE service_id = ?
+  ORDER BY updated_at DESC
+  LIMIT ?
+`)
+
+const getDeploymentCount = db.prepare(`
+  SELECT COUNT(*) as count FROM deployments WHERE service_id = ?
+`)
+
+export interface Deployment {
+  id: number
+  railway_deployment_id: string
+  service_id: string
+  status: string
+  created_at: number
+  updated_at: number
+  trigger: string | null
+  commit_sha: string | null
+  branch: string | null
+  metadata: string | null
+}
+
+export function upsertDeploymentRecord(
+  railwayId: string,
+  serviceId: string,
+  status: string,
+  trigger?: string,
+  commitSha?: string,
+  branch?: string,
+  metadata?: object
+): void {
+  const now = Math.floor(Date.now() / 1000)
+  upsertDeployment.run(
+    railwayId, serviceId, status, now, now,
+    trigger ?? null, commitSha ?? null, branch ?? null,
+    metadata ? JSON.stringify(metadata) : null
+  )
+}
+
+export function listDeployments(serviceId: string, limit = 20): Deployment[] {
+  return getRecentDeployments.all(serviceId, limit) as Deployment[]
+}
+
+// --- Service Metrics ---
+
+const insertMetric = db.prepare(`
+  INSERT INTO service_metrics (service_id, timestamp, cpu_percent, memory_mb, uptime_seconds, request_count, error_count, metadata)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+`)
+
+const getMetricsRange = db.prepare(`
+  SELECT * FROM service_metrics
+  WHERE service_id = ? AND timestamp >= ?
+  ORDER BY timestamp DESC
+  LIMIT ?
+`)
+
+export interface ServiceMetric {
+  id: number
+  service_id: string
+  timestamp: number
+  cpu_percent: number | null
+  memory_mb: number | null
+  uptime_seconds: number | null
+  request_count: number | null
+  error_count: number | null
+  metadata: string | null
+}
+
+export function logMetric(
+  serviceId: string,
+  cpu?: number,
+  memory?: number,
+  uptime?: number,
+  requestCount?: number,
+  errorCount?: number,
+  metadata?: object
+): void {
+  const timestamp = Math.floor(Date.now() / 1000)
+  insertMetric.run(
+    serviceId, timestamp,
+    cpu ?? null, memory ?? null, uptime ?? null,
+    requestCount ?? null, errorCount ?? null,
+    metadata ? JSON.stringify(metadata) : null
+  )
+}
+
+export function getMetrics(serviceId: string, hoursBack = 24, limit = 100): ServiceMetric[] {
+  const since = Math.floor(Date.now() / 1000) - (hoursBack * 3600)
+  return getMetricsRange.all(serviceId, since, limit) as ServiceMetric[]
 }
 
 export default db
