@@ -132,17 +132,19 @@ app.get('/api/events', (_req, res) => {
 })
 
 app.get('/api/pick-folder', (_req, res) => {
+  if (process.platform !== 'darwin') {
+    res.json({ path: null, error: 'Folder picker only available on macOS' })
+    return
+  }
   try {
     const script = `
       set chosenFolder to POSIX path of (choose folder with prompt "Select Working Directory")
       return chosenFolder
     `
     const result = execSync(`osascript -e '${script}'`, { timeout: 60000 }).toString().trim()
-    // Remove trailing slash
     const folder = result.endsWith('/') ? result.slice(0, -1) : result
     res.json({ path: folder })
   } catch {
-    // User cancelled or error
     res.json({ path: null })
   }
 })
@@ -154,7 +156,7 @@ app.get('*', (_req, res) => {
 
 // --- WebSocket ---
 
-const wss = new WebSocketServer({ server, path: '/ws/events' })
+const wss = new WebSocketServer({ noServer: true })
 
 // Broadcast session updates to all connected clients
 function broadcastSessions() {
