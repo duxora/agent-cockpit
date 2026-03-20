@@ -5,6 +5,7 @@ import TerminalView from './components/TerminalView'
 import LocalSessionDetail from './components/LocalSessionDetail'
 import NewSessionModal from './components/NewSessionModal'
 import SettingsModal from './components/SettingsModal'
+import AdminPanel from './components/AdminPanel'
 import { useWebSocket } from './hooks/useWebSocket'
 import { useNotifications } from './hooks/useNotifications'
 import type { Session } from './types'
@@ -14,6 +15,7 @@ export default function App() {
   const [selectedSession, setSelectedSession] = useState<string | null>(null)
   const [showNewModal, setShowNewModal] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
+  const [showAdmin, setShowAdmin] = useState(false)
   const [viewMode, setViewMode] = useState<'grid' | 'split'>('grid')
   const [splitLayout, setSplitLayout] = useState<'1x2' | '2x2' | '1x3' | '2x3'>('2x2')
   const [searchQuery, setSearchQuery] = useState('')
@@ -153,6 +155,14 @@ export default function App() {
             title="Refresh"
           >
             <RefreshCw className="h-4 w-4" />
+          </button>
+
+          <button
+            onClick={() => setShowAdmin(true)}
+            className="rounded-lg p-2 text-gray-400 hover:bg-gray-800 hover:text-gray-200"
+            title="Admin"
+          >
+            <Settings className="h-4 w-4" />
           </button>
 
           <button
@@ -306,6 +316,21 @@ export default function App() {
       {/* Settings modal */}
       {showSettings && (
         <SettingsModal onClose={() => setShowSettings(false)} />
+      )}
+
+      {/* Admin panel modal */}
+      {showAdmin && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="h-screen w-screen max-h-screen max-w-full rounded-lg bg-gray-900 shadow-xl flex flex-col">
+            <button
+              onClick={() => setShowAdmin(false)}
+              className="absolute right-4 top-4 text-gray-400 hover:text-gray-200"
+            >
+              ✕
+            </button>
+            <AdminPanel />
+          </div>
+        </div>
       )}
     </div>
   )
