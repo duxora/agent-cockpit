@@ -21,7 +21,7 @@ export interface SessionInfo {
 
 function runTmux(args: string): string {
   try {
-    return execSync(`tmux ${args}`, { encoding: 'utf-8', timeout: 5000 }).trim()
+    return execSync(`tmux ${args} 2>/dev/null`, { encoding: 'utf-8', timeout: 5000 }).trim()
   } catch {
     return ''
   }
