@@ -33,6 +33,16 @@ db.exec(`
   );
 
   CREATE INDEX IF NOT EXISTS idx_managed_sessions_status ON managed_sessions(status);
+
+  CREATE TABLE IF NOT EXISTS session_templates (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    command TEXT NOT NULL,
+    cwd TEXT DEFAULT '~',
+    icon TEXT DEFAULT '🤖',
+    category TEXT DEFAULT 'general',
+    created_at INTEGER NOT NULL DEFAULT (unixepoch())
+  );
 `)
 
 export interface SessionEvent {
@@ -65,6 +75,43 @@ export function getSessionEvents(sessionName: string, limit = 50): SessionEvent[
 
 export function getAllRecentEvents(limit = 100): SessionEvent[] {
   return getRecentEvents.all(limit) as SessionEvent[]
+}
+
+// --- Session Templates ---
+
+const insertTemplate = db.prepare(
+  'INSERT INTO session_templates (name, command, cwd, icon, category) VALUES (?, ?, ?, ?, ?)'
+)
+
+const getAllTemplates = db.prepare(
+  'SELECT * FROM session_templates ORDER BY category, name'
+)
+
+const deleteTemplate = db.prepare(
+  'DELETE FROM session_templates WHERE id = ?'
+)
+
+export interface SessionTemplate {
+  id: number
+  name: string
+  command: string
+  cwd: string
+  icon: string
+  category: string
+  created_at: number
+}
+
+export function createTemplate(name: string, command: string, cwd: string, icon: string = '🤖', category: string = 'general'): SessionTemplate {
+  const result = insertTemplate.run(name, command, cwd, icon, category)
+  return { id: Number(result.lastInsertRowid), name, command, cwd, icon, category, created_at: Math.floor(Date.now() / 1000) }
+}
+
+export function listTemplates(): SessionTemplate[] {
+  return getAllTemplates.all() as SessionTemplate[]
+}
+
+export function removeTemplate(id: number): boolean {
+  return deleteTemplate.run(id).changes > 0
 }
 
 // --- Managed Sessions (auto-linked Claude sessions) ---

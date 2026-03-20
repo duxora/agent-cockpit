@@ -1,11 +1,19 @@
-import { useState } from 'react'
-import { X, Plus, FolderOpen } from 'lucide-react'
+import { useState, useEffect } from 'react'
+import { X, Plus, FolderOpen, Bookmark } from 'lucide-react'
 
-const PRESETS = [
-  { label: 'Claude Code', command: 'claude', icon: '🤖' },
-  { label: 'Claude (Plan)', command: 'claude --plan', icon: '📋' },
-  { label: 'Bash', command: 'bash', icon: '💻' },
-  { label: 'Custom', command: '', icon: '⚙️' },
+interface Template {
+  id: number
+  name: string
+  command: string
+  cwd: string
+  icon: string
+  category: string
+}
+
+const DEFAULT_PRESETS: Template[] = [
+  { id: -1, name: 'Claude Code', command: 'claude', cwd: '~', icon: '🤖', category: 'default' },
+  { id: -2, name: 'Claude (Plan)', command: 'claude --plan', cwd: '~', icon: '📋', category: 'default' },
+  { id: -3, name: 'Bash', command: 'bash', cwd: '~', icon: '💻', category: 'default' },
 ]
 
 interface Props {
@@ -17,8 +25,20 @@ export default function NewSessionModal({ onClose, onCreate }: Props) {
   const [name, setName] = useState('')
   const [command, setCommand] = useState('claude')
   const [cwd, setCwd] = useState('')
-  const [selectedPreset, setSelectedPreset] = useState(0)
   const [picking, setPicking] = useState(false)
+  const [templates, setTemplates] = useState<Template[]>([])
+  const [selectedId, setSelectedId] = useState(-1)
+  const [showSaveTemplate, setShowSaveTemplate] = useState(false)
+  const [templateName, setTemplateName] = useState('')
+
+  useEffect(() => {
+    fetch('/api/templates')
+      .then((r) => r.json())
+      .then((data: Template[]) => setTemplates(data))
+      .catch(() => {})
+  }, [])
+
+  const allPresets = [...DEFAULT_PRESETS, ...templates]
 
   async function handlePickFolder() {
     setPicking(true)
@@ -36,6 +56,21 @@ export default function NewSessionModal({ onClose, onCreate }: Props) {
     onCreate(name.trim(), command.trim(), cwd.trim() || '~')
   }
 
+  async function handleSaveTemplate() {
+    if (!templateName.trim() || !command.trim()) return
+    const res = await fetch('/api/templates', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: templateName.trim(), command: command.trim(), cwd: cwd.trim() || '~', icon: '🔧' }),
+    })
+    if (res.ok) {
+      const tmpl = await res.json()
+      setTemplates((prev) => [...prev, tmpl])
+      setShowSaveTemplate(false)
+      setTemplateName('')
+    }
+  }
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
       <div className="w-full max-w-md rounded-xl border border-gray-700 bg-gray-900 p-6 shadow-2xl">
@@ -47,26 +82,27 @@ export default function NewSessionModal({ onClose, onCreate }: Props) {
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
-          {/* Presets */}
+          {/* Presets + Templates */}
           <div>
             <label className="mb-1.5 block text-xs font-medium text-gray-400">Agent Type</label>
             <div className="grid grid-cols-4 gap-2">
-              {PRESETS.map((preset, i) => (
+              {allPresets.map((preset) => (
                 <button
-                  key={preset.label}
+                  key={preset.id}
                   type="button"
                   onClick={() => {
-                    setSelectedPreset(i)
-                    if (preset.command) setCommand(preset.command)
+                    setSelectedId(preset.id)
+                    setCommand(preset.command)
+                    if (preset.cwd !== '~') setCwd(preset.cwd)
                   }}
                   className={`rounded-lg border px-3 py-2 text-center text-xs transition-all ${
-                    selectedPreset === i
+                    selectedId === preset.id
                       ? 'border-blue-500 bg-blue-500/10 text-blue-400'
                       : 'border-gray-700 text-gray-400 hover:border-gray-600'
                   }`}
                 >
                   <div className="text-lg">{preset.icon}</div>
-                  <div className="mt-1">{preset.label}</div>
+                  <div className="mt-1 truncate">{preset.name}</div>
                 </button>
               ))}
             </div>
@@ -119,6 +155,43 @@ export default function NewSessionModal({ onClose, onCreate }: Props) {
               </button>
             </div>
           </div>
+
+          {/* Save as Template */}
+          {showSaveTemplate ? (
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={templateName}
+                onChange={(e) => setTemplateName(e.target.value)}
+                placeholder="Template name..."
+                className="flex-1 rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-100 placeholder-gray-500 focus:border-blue-500 focus:outline-none"
+              />
+              <button
+                type="button"
+                onClick={handleSaveTemplate}
+                disabled={!templateName.trim()}
+                className="rounded-lg bg-gray-700 px-3 py-2 text-xs text-gray-300 hover:bg-gray-600 disabled:opacity-50"
+              >
+                Save
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowSaveTemplate(false)}
+                className="rounded-lg px-2 py-2 text-xs text-gray-500 hover:text-gray-300"
+              >
+                Cancel
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setShowSaveTemplate(true)}
+              className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-gray-300"
+            >
+              <Bookmark className="h-3 w-3" />
+              Save as template
+            </button>
+          )}
 
           {/* Actions */}
           <div className="flex justify-end gap-2 pt-2">

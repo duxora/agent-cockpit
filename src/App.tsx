@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Plus, LayoutGrid, Rows3, RefreshCw } from 'lucide-react'
+import { Plus, LayoutGrid, Rows3, RefreshCw, Search } from 'lucide-react'
 import SessionCard from './components/SessionCard'
 import TerminalView from './components/TerminalView'
 import NewSessionModal from './components/NewSessionModal'
@@ -12,6 +12,8 @@ export default function App() {
   const [selectedSession, setSelectedSession] = useState<string | null>(null)
   const [showNewModal, setShowNewModal] = useState(false)
   const [viewMode, setViewMode] = useState<'grid' | 'split'>('grid')
+  const [searchQuery, setSearchQuery] = useState('')
+  const [statusFilter, setStatusFilter] = useState<string>('all')
 
   // WebSocket for real-time session updates
   const { data: wsMessage, connected } = useWebSocket<{ type: string; data: Session[] }>('/ws/events')
@@ -84,6 +86,15 @@ export default function App() {
     return b.lastActivity - a.lastActivity
   })
 
+  const filteredSessions = sortedSessions.filter((s) => {
+    if (statusFilter !== 'all' && s.status !== statusFilter) return false
+    if (searchQuery) {
+      const q = searchQuery.toLowerCase()
+      return s.name.toLowerCase().includes(q) || s.cwd.toLowerCase().includes(q)
+    }
+    return true
+  })
+
   const waitingCount = sessions.filter((s) => s.status === 'waiting').length
   const activeCount = sessions.filter((s) => s.status === 'active').length
 
@@ -153,7 +164,36 @@ export default function App() {
         {viewMode === 'grid' ? (
           <>
             {/* Session list */}
-            <div className="w-80 overflow-y-auto border-r border-gray-800 p-4 space-y-3">
+            <div className="w-80 overflow-y-auto border-r border-gray-800">
+              {/* Search & Filter */}
+              <div className="sticky top-0 bg-gray-900 p-3 border-b border-gray-800 space-y-2">
+                <div className="relative">
+                  <Search className="absolute left-2.5 top-2 h-3.5 w-3.5 text-gray-500" />
+                  <input
+                    type="text"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder="Search sessions..."
+                    className="w-full rounded-lg border border-gray-700 bg-gray-800 pl-8 pr-3 py-1.5 text-xs text-gray-100 placeholder-gray-500 focus:border-blue-500 focus:outline-none"
+                  />
+                </div>
+                <div className="flex gap-1">
+                  {(['all', 'waiting', 'active', 'idle'] as const).map((filter) => (
+                    <button
+                      key={filter}
+                      onClick={() => setStatusFilter(filter)}
+                      className={`rounded px-2 py-0.5 text-[10px] font-medium ${
+                        statusFilter === filter
+                          ? 'bg-blue-500/20 text-blue-400'
+                          : 'text-gray-500 hover:text-gray-300'
+                      }`}
+                    >
+                      {filter === 'all' ? 'All' : filter.charAt(0).toUpperCase() + filter.slice(1)}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="p-4 space-y-3">
               {sessions.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-20 text-gray-600">
                   <span className="text-4xl mb-3">🎛️</span>
@@ -166,7 +206,7 @@ export default function App() {
                   </button>
                 </div>
               ) : (
-                sortedSessions.map((session) => (
+                filteredSessions.map((session) => (
                   <SessionCard
                     key={session.sessionId || session.name}
                     session={session}
@@ -180,6 +220,7 @@ export default function App() {
                   />
                 ))
               )}
+              </div>
             </div>
 
             {/* Terminal view */}

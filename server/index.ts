@@ -18,7 +18,8 @@ import {
 import {
   logEvent, getSessionEvents, getAllRecentEvents,
   registerManagedSession, heartbeatManagedSession, endManagedSession,
-  listManagedSessions, cleanupManagedSessions
+  listManagedSessions, cleanupManagedSessions,
+  createTemplate, listTemplates, removeTemplate,
 } from './db.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -173,6 +174,28 @@ app.get('/api/pick-folder', (_req, res) => {
   } catch {
     res.json({ path: null })
   }
+})
+
+// --- Templates API ---
+
+app.get('/api/templates', (_req, res) => {
+  res.json(listTemplates())
+})
+
+app.post('/api/templates', (req, res) => {
+  const { name, command, cwd, icon, category } = req.body
+  if (!name || !command) {
+    res.status(400).json({ error: 'name and command are required' })
+    return
+  }
+  const template = createTemplate(name, command, cwd || '~', icon, category)
+  res.json(template)
+})
+
+app.delete('/api/templates/:id', (req, res) => {
+  const id = parseInt(req.params.id)
+  const ok = removeTemplate(id)
+  res.json({ ok })
 })
 
 // --- Hook API (no auth required) ---
