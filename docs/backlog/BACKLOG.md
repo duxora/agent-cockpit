@@ -14,85 +14,44 @@
 **Status:** Implemented in commit db8278d (2026-03-20)
 **File:** [../superpowers/specs/2026-03-20-auto-link-claude-sessions-design.md](../superpowers/specs/2026-03-20-auto-link-claude-sessions-design.md)
 
-### 2. Push Notifications for Waiting Sessions
-**Summary:** Send browser push notifications (and optionally Telegram/Slack/webhook) when any session enters "waiting" state. Include session name, project, and what it's waiting for.
-**Why P0:** The whole point of a cockpit is to not have to stare at it. If Claude needs input at 2am, you need a ping.
-**Inspiration:** remote-web-claude-cli uses Browser Notification API + Telegram Bot API for mobile push.
-**Scope:**
-- Browser Notification API (requires one-time permission grant, trigger when tab hidden)
-- Telegram Bot API integration (TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID env vars)
-- Optional: webhook URL for Slack/Discord integration
-- Configurable: per-session or global notification preferences
-- Debounce: don't spam if session rapidly toggles waiting/active
+### ~~2. Push Notifications for Waiting Sessions~~ ✅ DONE
+**Status:** Implemented in commit 35a25fb (2026-03-20)
+Browser Notification API triggers when tab is hidden and a session enters waiting state. Telegram/Slack webhook integration deferred to future enhancement.
 
-### 3. Quick Actions from Session Card
-**Summary:** Add action buttons directly on session cards for common operations without opening terminal view.
-**Why P0:** Most interactions are simple approvals. Opening terminal view for each is slow.
-**Scope:**
-- "Yes" / "No" buttons visible when session is in "waiting" state (sends `y\n` or `n\n`)
-- "Send Enter" button for "Press Enter to continue" prompts
-- These work for tmux-backed sessions only (remote + cockpit-created)
+### ~~3. Quick Actions from Session Card~~ ✅ DONE
+**Status:** Implemented in commit 35a25fb (2026-03-20)
+Yes/No/Enter buttons appear on waiting tmux session cards.
 
 ---
 
 ## P1 — High
 
-### 4. Session Templates / Presets
-**Summary:** Save and reuse session configurations (name pattern, command, cwd, env vars). Quick-launch from dashboard.
-**Scope:**
-- Persist templates in SQLite: name, command, cwd, icon, env vars
-- CRUD API for templates
-- Template picker in NewSessionModal (replaces hardcoded PRESETS array)
-- "Save as Template" button after creating a session
-- Template categories: by project, by task type
+### ~~4. Session Templates / Presets~~ ✅ DONE
+**Status:** Implemented in commit 0300c1b (2026-03-20)
+SQLite-backed templates with CRUD API. Save as template from create modal.
 
-### 5. Session Activity Timeline
-**Summary:** Show a timeline of what happened in each session — when it started, when it asked for permission, what tools it used, when it completed.
-**Scope:**
-- Extend session_events table with richer event types
-- Hook sends tool usage events (PostToolUse hook with tool name + file path)
-- Timeline view component showing events chronologically
-- Filterable by event type (tool use, permission, error)
-- Useful for post-mortem: "what did this agent actually do?"
+### ~~5. Session Activity Timeline~~ ✅ DONE
+**Status:** Implemented in commit 1da03ba (2026-03-20)
+SessionTimeline component with event history polling.
 
-### 6. Multi-Session Terminal View
-**Summary:** Show 2-4 terminals simultaneously with independent scroll and input. Current split view exists but is limited to first 4 sessions with no selection.
-**Scope:**
-- Configurable grid: 1x1, 1x2, 2x2, 1x3, 2x3
-- Session selector per grid slot (dropdown)
-- Independent terminal instances (each with own WebSocket)
-- Drag-and-drop to rearrange
-- Persist layout preference
+### ~~6. Multi-Session Terminal View~~ ✅ DONE
+**Status:** Implemented in commit 635a011 (2026-03-20)
+Configurable grid layouts: 1x2, 2x2, 1x3, 2x3.
 
-### 7. Session Search & Filter
-**Summary:** Search sessions by name, cwd, status. Filter sidebar to show only waiting, only active, etc.
-**Scope:**
-- Search input in sidebar header
-- Filter buttons: All / Active / Waiting / Idle
-- Sort options: by name, by created time, by last activity
-- Keyboard shortcut: `/` to focus search
+### ~~7. Session Search & Filter~~ ✅ DONE
+**Status:** Implemented in commit 0300c1b (2026-03-20)
+Search by name/cwd, filter by status (All/Waiting/Active/Idle).
 
-### 8. Refresh Claude Auth Token via UI
-**File:** [refresh-claude-token.md](refresh-claude-token.md)
-**Summary:** UI to update CLAUDE_CODE_AUTH_TOKEN on Railway without CLI access.
-**Scope:**
-- Settings page with token input field
-- POST endpoint to update Railway env var
-- Trigger redeploy after update
-- Show current token status (masked)
+### ~~8. Refresh Claude Auth Token via UI~~ ✅ DONE
+**Status:** Implemented in commit 635a011 (2026-03-20)
+Settings modal with token update endpoint. Token validation (sk-ant-oat prefix).
 
 ---
 
 ## P2 — Medium
 
-### 9. Ring Buffer for Terminal Output Replay
-**Summary:** Keep a circular buffer (1MB per session) of terminal output. Replay on reconnect or tab switch so the user instantly sees recent output instead of a blank terminal.
-**Inspiration:** remote-web-claude-cli's `RingBuffer` replays full output on WebSocket reconnect.
-**Scope:**
-- Server-side ring buffer per active tmux session (1MB circular, configurable)
-- On WebSocket connect, replay buffered output before live polling
-- Connection status overlay: hidden → "Disconnected" (red) → "Reconnecting..." (amber)
-- Exponential backoff reconnection (1s initial, 30s max, with ping keepalive)
+### ~~9. Ring Buffer for Terminal Output Replay~~ ✅ PARTIAL
+**Status:** RingBuffer class created in commit f875f14 (2026-03-20). WebSocket reconnect with exponential backoff implemented. Buffer integration with terminal WS pending.
 
 ### 10. Session Output Log & Search
 **Summary:** Persist terminal output to DB. Search across all sessions for specific text (file names, error messages, commands).
