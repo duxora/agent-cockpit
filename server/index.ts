@@ -1,5 +1,6 @@
 import express from 'express'
 import { createServer } from 'http'
+import { execSync } from 'child_process'
 import os from 'os'
 import { WebSocketServer, WebSocket } from 'ws'
 import path from 'path'
@@ -21,6 +22,35 @@ const server = createServer(app)
 const PORT = parseInt(process.env.PORT || '4200')
 
 app.use(express.json())
+
+// Basic auth (enabled when COCKPIT_PASSWORD is set)
+const COCKPIT_USER = process.env.COCKPIT_USER || 'admin'
+const COCKPIT_PASSWORD = process.env.COCKPIT_PASSWORD
+
+if (COCKPIT_PASSWORD) {
+  app.use((req, res, next) => {
+    if (req.path === '/health') return next()
+
+    const auth = req.headers.authorization
+    if (!auth || !auth.startsWith('Basic ')) {
+      res.setHeader('WWW-Authenticate', 'Basic realm="Agent Cockpit"')
+      res.status(401).send('Authentication required')
+      return
+    }
+    const [user, pass] = Buffer.from(auth.slice(6), 'base64').toString().split(':')
+    if (user === COCKPIT_USER && pass === COCKPIT_PASSWORD) {
+      return next()
+    }
+    res.setHeader('WWW-Authenticate', 'Basic realm="Agent Cockpit"')
+    res.status(401).send('Invalid credentials')
+  })
+
+  console.log('  Auth: Basic auth enabled')
+}
+
+app.get('/health', (_req, res) => {
+  res.json({ status: 'ok' })
+})
 
 // Serve static files in production
 const distPath = path.join(__dirname, '..', 'dist')
@@ -101,6 +131,22 @@ app.get('/api/events', (_req, res) => {
   res.json(getAllRecentEvents(limit))
 })
 
+app.get('/api/pick-folder', (_req, res) => {
+  try {
+    const script = `
+      set chosenFolder to POSIX path of (choose folder with prompt "Select Working Directory")
+      return chosenFolder
+    `
+    const result = execSync(`osascript -e '${script}'`, { timeout: 60000 }).toString().trim()
+    // Remove trailing slash
+    const folder = result.endsWith('/') ? result.slice(0, -1) : result
+    res.json({ path: folder })
+  } catch {
+    // User cancelled or error
+    res.json({ path: null })
+  }
+})
+
 // SPA fallback
 app.get('*', (_req, res) => {
   res.sendFile(path.join(distPath, 'index.html'))
@@ -143,6 +189,22 @@ wss.on('connection', (ws) => {
 const termWss = new WebSocketServer({ noServer: true })
 
 server.on('upgrade', (request, socket, head) => {
+  // Check basic auth on WebSocket upgrade if enabled
+  if (COCKPIT_PASSWORD) {
+    const auth = request.headers.authorization
+    if (!auth || !auth.startsWith('Basic ')) {
+      socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n')
+      socket.destroy()
+      return
+    }
+    const [user, pass] = Buffer.from(auth.slice(6), 'base64').toString().split(':')
+    if (user !== COCKPIT_USER || pass !== COCKPIT_PASSWORD) {
+      socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n')
+      socket.destroy()
+      return
+    }
+  }
+
   const url = new URL(request.url || '', `http://localhost:${PORT}`)
 
   if (url.pathname === '/ws/events') {

@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { X, Plus } from 'lucide-react'
+import { X, Plus, FolderOpen } from 'lucide-react'
 
 const PRESETS = [
   { label: 'Claude Code', command: 'claude', icon: '🤖' },
@@ -18,6 +18,17 @@ export default function NewSessionModal({ onClose, onCreate }: Props) {
   const [command, setCommand] = useState('claude')
   const [cwd, setCwd] = useState('')
   const [selectedPreset, setSelectedPreset] = useState(0)
+  const [picking, setPicking] = useState(false)
+
+  async function handlePickFolder() {
+    setPicking(true)
+    try {
+      const res = await fetch('/api/pick-folder')
+      const data = await res.json()
+      if (data.path) setCwd(data.path)
+    } catch { /* ignore */ }
+    setPicking(false)
+  }
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -89,13 +100,24 @@ export default function NewSessionModal({ onClose, onCreate }: Props) {
           {/* Working Directory */}
           <div>
             <label className="mb-1.5 block text-xs font-medium text-gray-400">Working Directory</label>
-            <input
-              type="text"
-              value={cwd}
-              onChange={(e) => setCwd(e.target.value)}
-              placeholder="~/projects/my-project"
-              className="w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 font-mono text-sm text-gray-100 placeholder-gray-500 focus:border-blue-500 focus:outline-none"
-            />
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={cwd}
+                onChange={(e) => setCwd(e.target.value)}
+                placeholder="~/projects/my-project"
+                className="flex-1 rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 font-mono text-sm text-gray-100 placeholder-gray-500 focus:border-blue-500 focus:outline-none"
+              />
+              <button
+                type="button"
+                onClick={handlePickFolder}
+                disabled={picking}
+                className="flex items-center gap-1.5 rounded-lg border border-gray-700 px-3 py-2 text-sm text-gray-400 hover:border-gray-600 hover:text-gray-200 disabled:opacity-50"
+                title="Browse folder"
+              >
+                <FolderOpen className="h-4 w-4" />
+              </button>
+            </div>
           </div>
 
           {/* Actions */}
