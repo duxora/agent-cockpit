@@ -169,6 +169,10 @@ export function endManagedSession(id: string): void {
   stopManagedSession.run(id)
 }
 
+export function getManagedSessionById(id: string): ManagedSession | undefined {
+  return db.prepare('SELECT * FROM managed_sessions WHERE id = ?').get(id) as ManagedSession | undefined
+}
+
 export function listManagedSessions(): ManagedSession[] {
   return getActiveManagedSessions.all() as ManagedSession[]
 }

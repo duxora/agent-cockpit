@@ -18,7 +18,7 @@ import {
 import {
   logEvent, getSessionEvents, getAllRecentEvents,
   registerManagedSession, heartbeatManagedSession, endManagedSession,
-  listManagedSessions, cleanupManagedSessions,
+  getManagedSessionById, listManagedSessions, cleanupManagedSessions,
   createTemplate, listTemplates, removeTemplate,
 } from './db.js'
 
@@ -227,17 +227,25 @@ app.post('/api/hooks/session-start', (req, res) => {
     return
   }
   registerManagedSession(session_id, name, cwd || '~', metadata ? JSON.stringify(metadata) : undefined)
+  logEvent(name, 'started', JSON.stringify({ session_id, cwd: cwd || '~' }))
   broadcastSessions()
   res.json({ ok: true })
 })
 
 app.post('/api/hooks/heartbeat', (req, res) => {
-  const { session_id, status } = req.body
+  const { session_id, status, message } = req.body
   if (!session_id) {
     res.status(400).json({ error: 'session_id is required' })
     return
   }
   heartbeatManagedSession(session_id, status || 'active')
+  // Log status transitions (waiting = needs attention)
+  const effectiveStatus = status || 'active'
+  if (effectiveStatus === 'waiting') {
+    const managed = getManagedSessionById(session_id)
+    const eventName = managed?.name || session_id
+    logEvent(eventName, 'waiting', message ? JSON.stringify({ message }) : undefined)
+  }
   broadcastSessions()
   res.json({ ok: true })
 })
@@ -248,7 +256,10 @@ app.post('/api/hooks/session-end', (req, res) => {
     res.status(400).json({ error: 'session_id is required' })
     return
   }
+  const managed = getManagedSessionById(session_id)
+  const eventName = managed?.name || session_id
   endManagedSession(session_id)
+  logEvent(eventName, 'ended')
   broadcastSessions()
   res.json({ ok: true })
 })
