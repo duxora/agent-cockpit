@@ -66,7 +66,7 @@ export function getSessionContent(name: string, lines = 200): string {
 export function createSession(name: string, command: string, cwd?: string): boolean {
   try {
     const cwdArg = cwd ? `-c "${cwd}"` : ''
-    execSync(`tmux new-session -d -s "${name}" ${cwdArg} "${command}"`, {
+    execSync(`tmux new-session -d -s "${name}" -x 200 -y 50 ${cwdArg} "${command}"`, {
       encoding: 'utf-8',
       timeout: 10000,
     })
@@ -97,6 +97,18 @@ export function sendKeys(name: string, keys: string): boolean {
 export function sessionExists(name: string): boolean {
   try {
     execSync(`tmux has-session -t "${name}"`, { timeout: 5000 })
+    return true
+  } catch {
+    return false
+  }
+}
+
+export function resizeSession(name: string, cols: number, rows: number): boolean {
+  try {
+    execSync(`tmux resize-window -t "${name}" -x ${cols} -y ${rows} 2>/dev/null`, {
+      encoding: 'utf-8',
+      timeout: 5000,
+    })
     return true
   } catch {
     return false

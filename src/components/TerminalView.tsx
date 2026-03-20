@@ -53,7 +53,14 @@ export default function TerminalView({ sessionName }: Props) {
     const ws = new WebSocket(wsUrl)
     wsRef.current = ws
 
-    ws.onopen = () => setConnected(true)
+    ws.onopen = () => {
+      setConnected(true)
+      // Send initial size to sync tmux pane dimensions
+      const dims = fitAddon.proposeDimensions()
+      if (dims) {
+        ws.send(JSON.stringify({ type: 'resize', cols: dims.cols, rows: dims.rows }))
+      }
+    }
     ws.onclose = () => setConnected(false)
 
     ws.onmessage = (event) => {
@@ -79,9 +86,15 @@ export default function TerminalView({ sessionName }: Props) {
       }
     })
 
-    // Handle resize
+    // Handle resize — sync xterm and tmux pane dimensions
     const handleResize = () => {
       fitAddon.fit()
+      if (ws.readyState === WebSocket.OPEN) {
+        const dims = fitAddon.proposeDimensions()
+        if (dims) {
+          ws.send(JSON.stringify({ type: 'resize', cols: dims.cols, rows: dims.rows }))
+        }
+      }
     }
     window.addEventListener('resize', handleResize)
 

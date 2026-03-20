@@ -13,6 +13,7 @@ import {
   sendKeys,
   sessionExists,
   detectSessionState,
+  resizeSession,
 } from './tmux.js'
 import { logEvent, getSessionEvents, getAllRecentEvents } from './db.js'
 
@@ -256,6 +257,8 @@ termWss.on('connection', (ws, request) => {
       const msg = JSON.parse(data.toString())
       if (msg.type === 'input') {
         sendKeys(sessionName, msg.data)
+      } else if (msg.type === 'resize' && msg.cols && msg.rows) {
+        resizeSession(sessionName, msg.cols, msg.rows)
       }
     } catch {
       // Send raw input as keys
