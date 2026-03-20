@@ -8,12 +8,13 @@ NAME=$(basename "$CWD")
 
 [ -z "$SESSION_ID" ] && exit 0
 
-COCKPIT_URL="${COCKPIT_URL:-http://localhost:4200}"
+COCKPIT_URL="${COCKPIT_URL:-https://agent-cockpit-production.up.railway.app}"
+COCKPIT_AUTH="${COCKPIT_AUTH:-admin:spartan2026}"
 
-curl -sf -X POST "$COCKPIT_URL/api/hooks/session-start" \
+curl -sf --max-time 5 -X POST "$COCKPIT_URL/api/hooks/session-start" \
   -H "Content-Type: application/json" \
   -d "{\"session_id\":\"$SESSION_ID\",\"name\":\"$NAME\",\"cwd\":\"$CWD\"}" \
-  ${COCKPIT_AUTH:+-u "$COCKPIT_AUTH"} \
+  -u "$COCKPIT_AUTH" \
   >/dev/null 2>&1 &
 
 exit 0
