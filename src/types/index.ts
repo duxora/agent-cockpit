@@ -10,6 +10,13 @@ export interface Session {
   sessionId?: string
 }
 
+export interface SessionGroup {
+  project: string
+  sessions: Session[]
+  waitingCount: number
+  activeCount: number
+}
+
 export interface SessionEvent {
   id: number
   sessionName: string
