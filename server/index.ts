@@ -20,8 +20,9 @@ import {
   registerManagedSession, heartbeatManagedSession, endManagedSession,
   getManagedSessionById, listManagedSessions, cleanupManagedSessions,
   createTemplate, listTemplates, removeTemplate,
+  upsertDeploymentRecord, listDeployments, logMetric, getMetrics,
 } from './db.js'
-import { initRailway } from './railway.js'
+import { initRailway, fetchDeployments, fetchMetrics, fetchEnvironmentVariables } from './railway.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const app = express()
@@ -230,6 +231,69 @@ app.post('/api/settings/claude-token', (req, res) => {
     // Railway CLI not available — just update process env
     res.json({ ok: true, message: 'Token updated for current process (Railway CLI not available)' })
   }
+})
+
+// --- Railway Admin Endpoints ---
+
+const PROJECT_ID = '6ffdb913-43d2-49aa-b68e-0e5b617a148d'
+const SERVICE_ID = '434d4687-cf40-4ba6-ad07-5918babd23cd'
+
+app.get('/api/admin/railway/deployments', async (req, res) => {
+  // Check auth
+  const auth = req.headers.authorization?.split(' ')[1]
+  const credentials = Buffer.from(auth || '', 'base64').toString()
+  const [user, pass] = credentials.split(':')
+
+  if (user !== COCKPIT_USER || pass !== COCKPIT_PASSWORD) {
+    res.status(401).json({ error: 'Unauthorized' })
+    return
+  }
+
+  // Fetch from Railway API and cache
+  const deployments = await fetchDeployments(PROJECT_ID, SERVICE_ID)
+  for (const d of deployments) {
+    upsertDeploymentRecord(
+      d.id, SERVICE_ID, d.status,
+      undefined, d.meta?.commitSha, d.meta?.branch
+    )
+  }
+
+  // Return from cache
+  const cached = listDeployments(SERVICE_ID, 20)
+  res.json(cached)
+})
+
+app.get('/api/admin/railway/metrics', async (req, res) => {
+  const auth = req.headers.authorization?.split(' ')[1]
+  const credentials = Buffer.from(auth || '', 'base64').toString()
+  const [user, pass] = credentials.split(':')
+
+  if (user !== COCKPIT_USER || pass !== COCKPIT_PASSWORD) {
+    res.status(401).json({ error: 'Unauthorized' })
+    return
+  }
+
+  const metrics = await fetchMetrics(SERVICE_ID)
+  if (Object.keys(metrics).length > 0) {
+    logMetric(SERVICE_ID, metrics.cpuPercent, metrics.memoryMb, metrics.uptimeSeconds)
+  }
+
+  const history = getMetrics(SERVICE_ID, 24, 100)
+  res.json(history)
+})
+
+app.get('/api/admin/railway/variables', async (req, res) => {
+  const auth = req.headers.authorization?.split(' ')[1]
+  const credentials = Buffer.from(auth || '', 'base64').toString()
+  const [user, pass] = credentials.split(':')
+
+  if (user !== COCKPIT_USER || pass !== COCKPIT_PASSWORD) {
+    res.status(401).json({ error: 'Unauthorized' })
+    return
+  }
+
+  const vars = await fetchEnvironmentVariables(SERVICE_ID)
+  res.json(vars)
 })
 
 // --- Open in Terminal (local only) ---
