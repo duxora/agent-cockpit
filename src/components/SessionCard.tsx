@@ -26,9 +26,10 @@ interface Props {
   isSelected: boolean
   onSelect: () => void
   onKill: () => void
+  onSendKeys?: (keys: string) => void
 }
 
-export default function SessionCard({ session, isSelected, onSelect, onKill }: Props) {
+export default function SessionCard({ session, isSelected, onSelect, onKill, onSendKeys }: Props) {
   const cfg = STATUS_CONFIG[session.status] || STATUS_CONFIG.dead
   const isLocal = session.source === 'local'
 
@@ -90,9 +91,34 @@ export default function SessionCard({ session, isSelected, onSelect, onKill }: P
       </div>
 
       {session.status === 'waiting' && (
-        <div className="mt-2 flex items-center gap-1.5 text-xs text-red-400">
-          <AlertTriangle className="h-3 w-3" />
-          Needs your attention
+        <div className="mt-2 flex items-center justify-between">
+          <div className="flex items-center gap-1.5 text-xs text-red-400">
+            <AlertTriangle className="h-3 w-3" />
+            Needs your attention
+          </div>
+          {session.source === 'tmux' && onSendKeys && (
+            <div className="flex items-center gap-1.5">
+              <button
+                onClick={(e) => { e.stopPropagation(); onSendKeys('y\n') }}
+                className="rounded bg-green-600/20 px-2 py-0.5 text-xs font-medium text-green-400 hover:bg-green-600/30"
+              >
+                Yes
+              </button>
+              <button
+                onClick={(e) => { e.stopPropagation(); onSendKeys('n\n') }}
+                className="rounded bg-red-600/20 px-2 py-0.5 text-xs font-medium text-red-400 hover:bg-red-600/30"
+              >
+                No
+              </button>
+              <button
+                onClick={(e) => { e.stopPropagation(); onSendKeys('\n') }}
+                className="rounded bg-gray-600/20 px-2 py-0.5 text-xs font-medium text-gray-400 hover:bg-gray-600/30"
+                title="Send Enter"
+              >
+                Enter
+              </button>
+            </div>
+          )}
         </div>
       )}
     </div>

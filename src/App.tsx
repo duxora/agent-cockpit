@@ -4,6 +4,7 @@ import SessionCard from './components/SessionCard'
 import TerminalView from './components/TerminalView'
 import NewSessionModal from './components/NewSessionModal'
 import { useWebSocket } from './hooks/useWebSocket'
+import { useNotifications } from './hooks/useNotifications'
 import type { Session } from './types'
 
 export default function App() {
@@ -14,6 +15,9 @@ export default function App() {
 
   // WebSocket for real-time session updates
   const { data: wsMessage, connected } = useWebSocket<{ type: string; data: Session[] }>('/ws/events')
+
+  // Browser push notifications for waiting sessions
+  useNotifications(sessions)
 
   useEffect(() => {
     if (wsMessage?.type === 'sessions') {
@@ -56,6 +60,14 @@ export default function App() {
       const err = await res.json()
       alert(err.error || 'Failed to create session')
     }
+  }, [])
+
+  const handleSendKeys = useCallback(async (name: string, keys: string) => {
+    await fetch(`/api/sessions/${encodeURIComponent(name)}/send`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ keys }),
+    })
   }, [])
 
   const handleRefresh = useCallback(async () => {
@@ -164,6 +176,7 @@ export default function App() {
                       setSelectedSession(session.name)
                     }}
                     onKill={() => handleKill(session.name)}
+                    onSendKeys={(keys) => handleSendKeys(session.name, keys)}
                   />
                 ))
               )}
