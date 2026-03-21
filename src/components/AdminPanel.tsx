@@ -2,10 +2,11 @@ import { useState } from 'react'
 import RailwayStatus from './RailwayStatus'
 import MetricsCard from './MetricsCard'
 import VariablesManager from './VariablesManager'
+import { AnalyticsDashboard } from './AnalyticsDashboard'
 import { Settings } from 'lucide-react'
 
 export default function AdminPanel() {
-  const [activeTab, setActiveTab] = useState<'railway' | 'settings'>('railway')
+  const [activeTab, setActiveTab] = useState<'railway' | 'settings' | 'analytics'>('railway')
 
   return (
     <div className="flex h-full flex-col">
@@ -26,6 +27,16 @@ export default function AdminPanel() {
           Railway
         </button>
         <button
+          onClick={() => setActiveTab('analytics')}
+          className={`flex-1 px-4 py-2 text-sm font-medium ${
+            activeTab === 'analytics'
+              ? 'border-b-2 border-blue-500 text-blue-400'
+              : 'text-gray-500 hover:text-gray-300'
+          }`}
+        >
+          Analytics
+        </button>
+        <button
           onClick={() => setActiveTab('settings')}
           className={`flex-1 px-4 py-2 text-sm font-medium ${
             activeTab === 'settings'
@@ -38,13 +49,15 @@ export default function AdminPanel() {
       </div>
 
       <div className="flex-1 overflow-y-auto p-6">
-        {activeTab === 'railway' ? (
+        {activeTab === 'railway' && (
           <div className="space-y-4">
             <MetricsCard />
             <RailwayStatus />
             <VariablesManager />
           </div>
-        ) : (
+        )}
+        {activeTab === 'analytics' && <AnalyticsDashboard />}
+        {activeTab === 'settings' && (
           <div className="text-gray-500 text-sm">Settings panel (existing content)</div>
         )}
       </div>
