@@ -45,7 +45,7 @@ const COCKPIT_PASSWORD = process.env.COCKPIT_PASSWORD
 
 if (COCKPIT_PASSWORD) {
   app.use((req, res, next) => {
-    if (req.path === '/health' || req.path === '/api/system/capabilities' || req.path.startsWith('/api/hooks/')) return next()
+    if (req.path === '/health' || req.path === '/api/system/capabilities' || req.path.startsWith('/api/hooks')) return next()
 
     const auth = req.headers.authorization
     if (!auth || !auth.startsWith('Basic ')) {
