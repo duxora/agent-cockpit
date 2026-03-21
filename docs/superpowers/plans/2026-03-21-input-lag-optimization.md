@@ -28,12 +28,12 @@
 ## Task 1: Write Unit Tests for Keystroke Buffering
 
 **Files:**
-- Create: `src/components/__tests__/TerminalViewKeystrokeBatching.test.tsx`
+- Create: `src/components/__tests__/TerminalView.test.tsx` (add to existing or create new)
 
 - [ ] **Step 1: Write test for keystroke buffering within 50ms**
 
 ```typescript
-// src/components/__tests__/TerminalViewKeystrokeBatching.test.tsx
+// src/components/__tests__/TerminalView.test.tsx
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 describe('TerminalView - Keystroke Buffering', () => {
@@ -161,10 +161,10 @@ describe('TerminalView - Keystroke Buffering', () => {
 - [ ] **Step 2: Run tests to verify they fail**
 
 ```bash
-npm test -- TerminalViewKeystrokeBatching.test.tsx
+npm test -- TerminalView.test.tsx
 ```
 
-Expected output: All 3 tests should fail (functions don't exist yet)
+Expected output: All 3 tests should fail (keystrokeBuffer utility doesn't exist yet)
 
 ---
 
@@ -172,6 +172,12 @@ Expected output: All 3 tests should fail (functions don't exist yet)
 
 **Files:**
 - Create: `src/utils/keystrokeBuffer.ts`
+
+- [ ] **Step 0: Verify src/utils directory exists**
+
+```bash
+mkdir -p src/utils
+```
 
 - [ ] **Step 1: Create utility function for keystroke buffering**
 
@@ -299,12 +305,12 @@ git commit -m "feat: add keystroke buffering with 50ms debounce to TerminalView"
 ## Task 4: Write Integration Tests for Backend Input Handler
 
 **Files:**
-- Create: `server/__tests__/input-batching.test.ts`
+- Create: `server/__tests__/input.test.ts`
 
 - [ ] **Step 1: Write test for batch input processing**
 
 ```typescript
-// server/__tests__/input-batching.test.ts
+// server/__tests__/input.test.ts
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 
 describe('Input Handler - Batch Processing', () => {
@@ -393,7 +399,7 @@ describe('Input Handler - Batch Processing', () => {
 - [ ] **Step 2: Run tests to verify they pass**
 
 ```bash
-npm test -- input-batching.test.ts
+npm test -- input.test.ts
 ```
 
 Expected: All 4 tests pass (input handler already supports batches)
@@ -401,7 +407,7 @@ Expected: All 4 tests pass (input handler already supports batches)
 - [ ] **Step 3: Commit integration tests**
 
 ```bash
-git add server/__tests__/input-batching.test.ts
+git add server/__tests__/input.test.ts
 git commit -m "test: add integration tests for batch input processing"
 ```
 
@@ -427,22 +433,28 @@ if (message.type === 'input') {
 }
 ```
 
-- [ ] **Step 2: Verify handler already accepts batches**
+- [ ] **Step 2: Verify handler accepts batches (REQUIRED PASS/FAIL)**
 
-The handler should already work with multi-character data since it just calls `pty.write()`. PTY handles any size input.
+The handler must already work with multi-character data since it calls `pty.write()`.
 
-If you find per-character logic or character-by-character sends, note it but don't change it — that's out of scope for this task.
-
-**Expected:** Handler looks like:
+**PASS CONDITION (Must be true):**
 ```typescript
 if (message.type === 'input') {
-  pty.write(message.data) // Already batch-compatible
+  pty.write(message.data) // No per-character logic, batches work as-is
 }
 ```
 
-- [ ] **Step 3: Verify no changes needed**
+**FAIL CONDITION (If found, escalate):**
+- Character-by-character logic or loop: `for (const c of message.data)`
+- Multiple small `pty.write()` calls per message
+- Filtering or transforming characters
 
-If the handler is already batch-compatible, no commit is needed. If you find character-specific logic, document it in a comment for potential future optimization.
+**Action:** If handler is batch-compatible (PASS), no changes needed. If not (FAIL), this is a blocker — document and escalate.
+
+- [ ] **Step 3: Confirm result**
+
+If PASS: No commit needed. Mark this task complete.
+If FAIL: Create a note and stop — this needs investigation.
 
 ---
 
@@ -454,10 +466,10 @@ If the handler is already batch-compatible, no commit is needed. If you find cha
 - [ ] **Step 1: Check if InputMessage type exists**
 
 ```bash
-grep -n "input\|Input" src/types.ts
+grep -n "type.*input\|InputMessage" src/types.ts
 ```
 
-- [ ] **Step 2: If InputMessage type exists, verify it allows string data**
+- [ ] **Step 2: If type exists, verify it allows string data (REQUIRED)**
 
 Should look like:
 ```typescript
@@ -467,9 +479,11 @@ interface InputMessage {
 }
 ```
 
-- [ ] **Step 3: If type doesn't exist, optionally add it (nice-to-have)**
+If it exists and looks correct, no changes needed.
 
-Not required for MVP. If you want to add it for clarity:
+- [ ] **Step 3: If type doesn't exist, add it (REQUIRED)**
+
+Add to `src/types.ts`:
 
 ```typescript
 interface InputMessage {
@@ -478,12 +492,12 @@ interface InputMessage {
 }
 ```
 
-Then add to union:
+Then add to the message union (find the type union for WebSocket messages):
 ```typescript
 type TerminalMessage = ... | InputMessage
 ```
 
-But this is optional. Skip if it complicates things.
+This ensures type safety for the keystroke batching feature.
 
 ---
 
@@ -550,7 +564,16 @@ npm run dev:server &
 npm run dev:client &
 ```
 
-- [ ] **Step 2: Create a local Claude session**
+- [ ] **Step 2: Verify relay setup (PREREQUISITE CHECK)**
+
+Ensure the relay can reach your local Cockpit server. By default:
+```bash
+export COCKPIT_URL=http://localhost:4200
+```
+
+Or use environment variable before starting a session.
+
+- [ ] **Step 3: Create a local Claude session**
 
 Start a Claude session locally and connect to Cockpit:
 
@@ -558,40 +581,48 @@ Start a Claude session locally and connect to Cockpit:
 cockpit-relay claude --auto
 ```
 
-(This assumes relay is set up to connect to local Cockpit)
+If relay isn't globally installed, use:
+```bash
+npm run relay -- claude --auto
+```
 
-- [ ] **Step 3: Test rapid typing in terminal**
+- [ ] **Step 4: Test rapid typing in terminal**
 
-In the Cockpit UI, type a command rapidly:
+In the Cockpit UI terminal, type a command rapidly:
 - Type: `echo hello world` (all in one rapid motion)
 - Observe: Characters should appear instantly in terminal (local echo)
 - Observe: Command should execute normally
 
-- [ ] **Step 4: Measure perceived latency**
+✅ Expected: No visible lag between keystroke and character display
 
-- Without the fix: Notice lag between keystroke and character appearing
-- With the fix: Character should appear instantly (before debounce sends to server)
+- [ ] **Step 5: Measure perceived latency**
 
-- [ ] **Step 5: Test long commands**
+- Before fix: Notice lag between keystroke and character appearing (~100-500ms)
+- After fix: Character appears instantly (local echo is <50ms)
+- Use browser DevTools Timeline to measure if needed
+
+- [ ] **Step 6: Test long commands**
 
 Type: `ls -lah /very/long/path/with/many/characters`
-- Should feel responsive even with many keystrokes
-- Should execute correctly
+- Should feel responsive even with many rapid keystrokes
+- Should execute and return output correctly
 
-- [ ] **Step 6: Test special characters**
+✅ Expected: Smooth typing experience, no freezing or stuttering
 
-- Tab (`\t`)
-- Newline (`\n`)
-- Arrow keys
-- Ctrl+C
+- [ ] **Step 7: Test special characters and control keys**
 
-Verify all work correctly with batching.
+- Tab (`\t`): Should work for command completion
+- Newline (`\n` / Enter): Should execute command
+- Arrow keys: Should work for history/navigation
+- Ctrl+C: Should interrupt running command
 
-- [ ] **Step 7: If tests pass, commit confirmation**
+✅ Expected: All work correctly even with keystroke batching
+
+- [ ] **Step 8: If all tests pass, commit confirmation**
 
 ```bash
 git add -A
-git commit -m "⏺ 14:30 Manual E2E: keystroke batching works, commands execute correctly"
+git commit -m "test: manual E2E verification - keystroke batching works, commands execute correctly"
 ```
 
 ---
@@ -643,14 +674,14 @@ Create a note in `docs/superpowers/plans/2026-03-21-input-lag-optimization.md` s
 - Before: 100-500ms delay between keystroke and character appearance
 - After: <50ms (local echo is instantaneous)
 
-### Testing Date: YYYY-MM-DD
+### Testing Date: $(date +%Y-%m-%d)
 ```
 
 - [ ] **Step 7: Commit performance notes**
 
 ```bash
 git add docs/superpowers/plans/2026-03-21-input-lag-optimization.md
-git commit -m "docs: add performance measurement results"
+git commit -m "test: add performance measurement results from local E2E testing"
 ```
 
 ---
