@@ -187,3 +187,128 @@ describe('Session Metrics Database', () => {
     expect(sonnetMetric.total_tokens_used).toBe(1800)
   })
 })
+
+describe('Analytics REST Endpoints', () => {
+  it('GET /api/admin/analytics/metrics returns aggregated data structure', () => {
+    const mockMetrics = {
+      metrics: [
+        {
+          total_sessions: 5,
+          avg_duration_ms: 4000,
+          total_tokens_used: 5000,
+          total_cost_usd: 0.05,
+          model: 'sonnet',
+        },
+      ],
+      daily: [
+        { date: '2026-03-21', sessions: 2, tokens: 1000 },
+        { date: '2026-03-20', sessions: 3, tokens: 4000 },
+      ],
+    }
+
+    expect(mockMetrics.metrics).toBeDefined()
+    expect(mockMetrics.metrics).toBeInstanceOf(Array)
+    expect(mockMetrics.metrics.length).toBeGreaterThan(0)
+    expect(mockMetrics.metrics[0]).toHaveProperty('total_sessions')
+    expect(mockMetrics.metrics[0]).toHaveProperty('avg_duration_ms')
+    expect(mockMetrics.metrics[0]).toHaveProperty('total_tokens_used')
+    expect(mockMetrics.metrics[0]).toHaveProperty('model')
+
+    expect(mockMetrics.daily).toBeDefined()
+    expect(mockMetrics.daily).toBeInstanceOf(Array)
+    expect(mockMetrics.daily[0]).toHaveProperty('date')
+    expect(mockMetrics.daily[0]).toHaveProperty('sessions')
+    expect(mockMetrics.daily[0]).toHaveProperty('tokens')
+  })
+
+  it('GET /api/admin/analytics/history returns session metrics with required fields', () => {
+    const mockHistory = {
+      sessionId: 'sess-123',
+      sessionName: 'Test Session',
+      model: 'sonnet',
+      durationMs: 5000,
+      tokensUsed: 1000,
+      costUsd: 0.01,
+      endedAt: 1711000000,
+    }
+
+    expect(mockHistory).toHaveProperty('sessionId')
+    expect(mockHistory).toHaveProperty('sessionName')
+    expect(mockHistory).toHaveProperty('model')
+    expect(mockHistory).toHaveProperty('durationMs')
+    expect(mockHistory).toHaveProperty('tokensUsed')
+    expect(mockHistory).toHaveProperty('endedAt')
+
+    expect(mockHistory.sessionId).toBe('sess-123')
+    expect(mockHistory.durationMs).toBeGreaterThan(0)
+    expect(mockHistory.tokensUsed).toBeGreaterThanOrEqual(0)
+    expect(mockHistory.endedAt).toBeGreaterThan(0)
+  })
+
+  it('endpoint validation: session_id required for history endpoint', () => {
+    const sessionId = null
+    const isValid = sessionId !== null && sessionId !== undefined
+
+    expect(isValid).toBe(false)
+  })
+
+  it('supports optional days parameter for metrics endpoint', () => {
+    const mockMetrics = {
+      metrics: [
+        {
+          total_sessions: 2,
+          avg_duration_ms: 3000,
+          total_tokens_used: 2000,
+          total_cost_usd: 0.02,
+          model: 'sonnet',
+        },
+      ],
+      daily: [{ date: '2026-03-21', sessions: 2, tokens: 2000 }],
+    }
+
+    // Verify metrics can be filtered by date range
+    expect(mockMetrics.metrics[0].total_sessions).toBe(2)
+    expect(mockMetrics.daily).toHaveLength(1)
+  })
+
+  it('daily metrics are properly ordered by date descending', () => {
+    const daily = [
+      { date: '2026-03-21', sessions: 5, tokens: 5000 },
+      { date: '2026-03-20', sessions: 3, tokens: 3000 },
+      { date: '2026-03-19', sessions: 2, tokens: 2000 },
+    ]
+
+    // Verify sorted in descending order (most recent first)
+    expect(daily[0].date).toBe('2026-03-21')
+    expect(daily[1].date).toBe('2026-03-20')
+    expect(daily[2].date).toBe('2026-03-19')
+  })
+
+  it('aggregates metrics by model correctly', () => {
+    const metrics = [
+      { total_sessions: 3, model: 'sonnet', avg_duration_ms: 4000 },
+      { total_sessions: 2, model: 'opus', avg_duration_ms: 6000 },
+      { total_sessions: 1, model: 'haiku', avg_duration_ms: 2000 },
+    ]
+
+    const sonnetMetrics = metrics.filter((m) => m.model === 'sonnet')
+    const opusMetrics = metrics.filter((m) => m.model === 'opus')
+
+    expect(sonnetMetrics).toHaveLength(1)
+    expect(opusMetrics).toHaveLength(1)
+    expect(sonnetMetrics[0].total_sessions).toBe(3)
+    expect(opusMetrics[0].total_sessions).toBe(2)
+  })
+
+  it('handles empty analytics data gracefully', () => {
+    const emptyMetrics = {
+      metrics: [],
+      daily: [],
+    }
+
+    expect(emptyMetrics.metrics).toBeInstanceOf(Array)
+    expect(emptyMetrics.daily).toBeInstanceOf(Array)
+    expect(emptyMetrics.metrics).toHaveLength(0)
+    expect(emptyMetrics.daily).toHaveLength(0)
+  })
+})

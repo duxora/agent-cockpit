@@ -21,6 +21,7 @@ import {
   getManagedSessionById, listManagedSessions, cleanupManagedSessions,
   createTemplate, listTemplates, removeTemplate,
   upsertDeploymentRecord, listDeployments, logMetric, getMetrics,
+  logSessionMetrics, getAggregatedMetrics, getSessionMetrics,
 } from './db.js'
 import { initRailway, fetchDeployments, fetchMetrics, fetchEnvironmentVariables } from './railway.js'
 
@@ -296,6 +297,34 @@ app.get('/api/admin/railway/variables', async (req, res) => {
   res.json(vars)
 })
 
+// --- Analytics Endpoints ---
+
+app.get('/api/admin/analytics/metrics', (req, res) => {
+  try {
+    const days = parseInt(req.query.days as string) || 30
+    const data = getAggregatedMetrics(days)
+    res.json(data)
+  } catch (error) {
+    console.error('Failed to get analytics metrics:', error)
+    res.status(500).json({ error: 'Failed to get metrics' })
+  }
+})
+
+app.get('/api/admin/analytics/history', (req, res) => {
+  try {
+    const sessionId = req.query.session_id as string
+    if (!sessionId) {
+      res.status(400).json({ error: 'session_id required' })
+      return
+    }
+    const metric = getSessionMetrics(sessionId)
+    res.json(metric)
+  } catch (error) {
+    console.error('Failed to get session history:', error)
+    res.status(500).json({ error: 'Failed to get session history' })
+  }
+})
+
 // --- Open in Terminal (local only) ---
 
 app.post('/api/sessions/:id/open-terminal', (req, res) => {
@@ -367,6 +396,21 @@ app.post('/api/hooks/session-end', (req, res) => {
   }
   const managed = getManagedSessionById(session_id)
   const eventName = managed?.name || session_id
+
+  // Log session metrics when session ends
+  if (managed) {
+    const durationMs = (Math.floor(Date.now() / 1000) - managed.started_at) * 1000
+    logSessionMetrics({
+      sessionId: session_id,
+      sessionName: managed.name,
+      model: 'sonnet',
+      durationMs,
+      tokensUsed: 0,
+      costUsd: undefined,
+      endedAt: Math.floor(Date.now() / 1000),
+    })
+  }
+
   endManagedSession(session_id)
   logEvent(eventName, 'ended')
   broadcastSessions()
