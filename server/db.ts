@@ -96,6 +96,19 @@ db.exec(`
     repo TEXT NOT NULL,
     updated_at INTEGER DEFAULT (unixepoch())
   );
+
+  CREATE TABLE IF NOT EXISTS hooks (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    hook_type TEXT NOT NULL,
+    trigger TEXT NOT NULL,
+    name TEXT NOT NULL,
+    command TEXT NOT NULL,
+    enabled BOOLEAN DEFAULT 1,
+    created_at INTEGER DEFAULT (unixepoch())
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_hooks_hook_type ON hooks(hook_type);
+  CREATE INDEX IF NOT EXISTS idx_hooks_enabled ON hooks(enabled);
 `)
 
 export interface SessionEvent {

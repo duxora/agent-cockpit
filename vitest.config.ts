@@ -10,7 +10,13 @@ export default defineConfig({
   test: {
     globals: true,
     environment: 'jsdom',
-    include: ['src/**/__tests__/*.test.ts', 'src/**/__tests__/*.test.tsx', 'tests/**/*.test.ts', 'tests/**/*.test.tsx'],
+    include: [
+      'src/**/__tests__/*.test.ts',
+      'src/**/__tests__/*.test.tsx',
+      'server/**/__tests__/*.test.ts',
+      'tests/**/*.test.ts',
+      'tests/**/*.test.tsx'
+    ],
     testTimeout: 10000,
   },
 })
