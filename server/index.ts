@@ -22,8 +22,10 @@ import {
   createTemplate, listTemplates, removeTemplate,
   upsertDeploymentRecord, listDeployments, logMetric, getMetrics,
   logSessionMetrics, getAggregatedMetrics, getSessionMetrics,
+  saveGitHubConfig, getGitHubConfig,
 } from './db.js'
 import { initRailway, fetchDeployments, fetchMetrics, fetchEnvironmentVariables } from './railway.js'
+import { initGitHub, fetchPRs, fetchIssues, fetchBranches } from './github.js'
 import { listAvailableSkills, getSkillMetadata } from './skills.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -32,6 +34,7 @@ const server = createServer(app)
 const PORT = parseInt(process.env.PORT || '4200')
 
 initRailway()
+initGitHub()
 
 app.use(express.json())
 
@@ -306,6 +309,79 @@ app.get('/api/admin/railway/variables', async (req, res) => {
 
   const vars = await fetchEnvironmentVariables(SERVICE_ID)
   res.json(vars)
+})
+
+// --- GitHub Admin Endpoints ---
+
+app.get('/api/admin/github/config', (req, res) => {
+  const config = getGitHubConfig()
+  if (config) {
+    res.json({ owner: config.owner, repo: config.repo })
+  } else {
+    res.json({ owner: '', repo: '' })
+  }
+})
+
+app.post('/api/admin/github/config', (req, res) => {
+  const { token, owner, repo } = req.body
+
+  if (!token || !owner || !repo) {
+    res.status(400).json({ error: 'Missing fields' })
+    return
+  }
+
+  try {
+    saveGitHubConfig(token, owner, repo)
+    initGitHub()
+    res.json({ success: true })
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to save config' })
+  }
+})
+
+app.get('/api/admin/github/prs', async (req, res) => {
+  const config = getGitHubConfig()
+  if (!config) {
+    res.status(400).json({ error: 'GitHub not configured' })
+    return
+  }
+
+  try {
+    const prs = await fetchPRs(config.owner, config.repo)
+    res.json(prs)
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to fetch PRs' })
+  }
+})
+
+app.get('/api/admin/github/issues', async (req, res) => {
+  const config = getGitHubConfig()
+  if (!config) {
+    res.status(400).json({ error: 'GitHub not configured' })
+    return
+  }
+
+  try {
+    const issues = await fetchIssues(config.owner, config.repo)
+    res.json(issues)
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to fetch issues' })
+  }
+})
+
+app.get('/api/admin/github/branches', async (req, res) => {
+  const config = getGitHubConfig()
+  if (!config) {
+    res.status(400).json({ error: 'GitHub not configured' })
+    return
+  }
+
+  try {
+    const branches = await fetchBranches(config.owner, config.repo)
+    res.json(branches)
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to fetch branches' })
+  }
 })
 
 // --- Analytics Endpoints ---
