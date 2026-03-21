@@ -1,60 +1,14 @@
 // plugins/agent-cockpit-channel/index.ts
 import { loadConfig } from './config.js'
+import { AgentCockpitClient } from './client.js'
+import { createChannelTools } from './tools.js'
 
 const config = loadConfig()
 
-console.log('Agent Cockpit Channel Plugin starting...')
-console.log(`Connecting to: ${config.agent_cockpit_url}`)
-console.log(`Poll interval: ${config.poll_interval_seconds}s`)
+const client = new AgentCockpitClient(config)
+const tools = createChannelTools(client)
 
-// Channel protocol: Claude Code will invoke this as an MCP server
-// For now, just start polling loop
+// Export tools for Claude Code MCP interface
+export const claudeTools = tools
 
-let sessionActive = true
-
-async function pollTasks() {
-  while (sessionActive) {
-    try {
-      const response = await fetch(`${config.agent_cockpit_url}/api/channel/tasks/pending`, {
-        headers: {
-          'Authorization': 'Basic ' + Buffer.from(
-            `${config.cockpit_user}:${config.cockpit_password}`
-          ).toString('base64')
-        }
-      })
-
-      if (response.ok) {
-        const result = await response.json() as unknown
-        if (
-          typeof result === 'object' &&
-          result !== null &&
-          'tasks' in result &&
-          Array.isArray((result as any).tasks)
-        ) {
-          const tasks = (result as any).tasks
-          if (tasks.length > 0) {
-            console.log(`Received ${tasks.length} pending tasks`)
-            // Tasks will be processed through channel protocol
-            // Claude Code will receive them as <channel> events
-          }
-        }
-      }
-    } catch (error) {
-      console.error('Failed to poll tasks:', error)
-    }
-
-    await new Promise(resolve => setTimeout(resolve, config.poll_interval_seconds * 1000))
-  }
-}
-
-// Start polling
-pollTasks().catch(err => {
-  console.error('Poll loop crashed:', err)
-  process.exit(1)
-})
-
-// Handle shutdown
-process.on('SIGINT', () => {
-  sessionActive = false
-  process.exit(0)
-})
+console.log('Agent Cockpit Channel Plugin ready with tools:', Object.keys(tools).join(', '))
