@@ -300,6 +300,16 @@ app.get('/api/admin/railway/variables', async (req, res) => {
 // --- Analytics Endpoints ---
 
 app.get('/api/admin/analytics/metrics', (req, res) => {
+  // Check auth
+  const auth = req.headers.authorization?.split(' ')[1]
+  const credentials = Buffer.from(auth || '', 'base64').toString()
+  const [user, pass] = credentials.split(':')
+
+  if (user !== COCKPIT_USER || pass !== COCKPIT_PASSWORD) {
+    res.status(401).json({ error: 'Unauthorized' })
+    return
+  }
+
   try {
     const days = parseInt(req.query.days as string) || 30
     const data = getAggregatedMetrics(days)
@@ -311,6 +321,16 @@ app.get('/api/admin/analytics/metrics', (req, res) => {
 })
 
 app.get('/api/admin/analytics/history', (req, res) => {
+  // Check auth
+  const auth = req.headers.authorization?.split(' ')[1]
+  const credentials = Buffer.from(auth || '', 'base64').toString()
+  const [user, pass] = credentials.split(':')
+
+  if (user !== COCKPIT_USER || pass !== COCKPIT_PASSWORD) {
+    res.status(401).json({ error: 'Unauthorized' })
+    return
+  }
+
   try {
     const sessionId = req.query.session_id as string
     if (!sessionId) {
@@ -318,6 +338,10 @@ app.get('/api/admin/analytics/history', (req, res) => {
       return
     }
     const metric = getSessionMetrics(sessionId)
+    if (!metric) {
+      res.status(404).json({ error: 'Session not found' })
+      return
+    }
     res.json(metric)
   } catch (error) {
     console.error('Failed to get session history:', error)
