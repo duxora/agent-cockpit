@@ -6,10 +6,11 @@ import { AnalyticsDashboard } from './AnalyticsDashboard'
 import { HooksManager } from './HooksManager'
 import { SkillsManager } from './SkillsManager'
 import { GitHubStatus } from './GitHubStatus'
+import ClaudeTasksTab from './ClaudeTasksTab'
 import { Settings } from 'lucide-react'
 
 export default function AdminPanel() {
-  const [activeTab, setActiveTab] = useState<'railway' | 'settings' | 'analytics' | 'skills' | 'hooks' | 'github'>('railway')
+  const [activeTab, setActiveTab] = useState<'railway' | 'settings' | 'analytics' | 'skills' | 'hooks' | 'github' | 'claude-tasks'>('railway')
 
   return (
     <div className="flex h-full flex-col">
@@ -70,6 +71,16 @@ export default function AdminPanel() {
           GitHub
         </button>
         <button
+          onClick={() => setActiveTab('claude-tasks')}
+          className={`flex-1 px-4 py-2 text-sm font-medium ${
+            activeTab === 'claude-tasks'
+              ? 'border-b-2 border-blue-500 text-blue-400'
+              : 'text-gray-500 hover:text-gray-300'
+          }`}
+        >
+          Claude Tasks
+        </button>
+        <button
           onClick={() => setActiveTab('settings')}
           className={`flex-1 px-4 py-2 text-sm font-medium ${
             activeTab === 'settings'
@@ -93,6 +104,7 @@ export default function AdminPanel() {
         {activeTab === 'skills' && <SkillsManager />}
         {activeTab === 'hooks' && <HooksManager />}
         {activeTab === 'github' && <GitHubStatus />}
+        {activeTab === 'claude-tasks' && <ClaudeTasksTab />}
         {activeTab === 'settings' && (
           <div className="text-gray-500 text-sm">Settings panel (existing content)</div>
         )}
