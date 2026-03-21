@@ -180,3 +180,45 @@ describe('Channel API Endpoints', () => {
     expect(data).toHaveProperty('completed_today')
   })
 })
+
+describe('Channel End-to-End Flow', () => {
+  it('should handle complete task lifecycle', async () => {
+    const taskId = randomUUID()
+
+    // 1. Create task
+    createChannelTask({
+      id: taskId,
+      task_type: 'deployment',
+      title: 'E2E test deploy',
+      input_payload: { branch: 'main' },
+      triggered_by: 'test'
+    })
+
+    // 2. Claude polls for tasks
+    const pending = listPendingTasks(10)
+    expect(pending.length).toBeGreaterThan(0)
+    const polledTask = pending.find(t => t.id === taskId)
+    expect(polledTask).toBeDefined()
+    expect(polledTask?.status).toBe('pending')
+
+    // 3. Update status to fetched
+    updateTaskStatus(taskId, 'fetched', {})
+    const fetched = getChannelTask(taskId)
+    expect(fetched?.status).toBe('fetched')
+
+    // 4. Simulate execution -> report result
+    updateTaskResult(
+      taskId,
+      'completed',
+      { url: 'https://example.com', logs: 'Success' },
+      undefined,
+      5000
+    )
+
+    // 5. Verify result stored
+    const completed = getChannelTask(taskId)
+    expect(completed?.status).toBe('completed')
+    expect(completed?.output_payload?.url).toBe('https://example.com')
+    expect(completed?.duration_ms).toBe(5000)
+  })
+})
