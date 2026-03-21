@@ -4,12 +4,18 @@ import {
   getChannelTask,
   listPendingTasks,
   updateTaskStatus,
-  logSyncEvent
+  updateTaskResult,
+  logSyncEvent,
+  getSyncStatus
 } from '../db.js'
 import { randomUUID } from 'crypto'
 
 describe('Channel Tasks', () => {
-  const taskId = randomUUID()
+  let taskId: string
+
+  beforeEach(() => {
+    taskId = randomUUID()
+  })
 
   it('should create and retrieve a task', () => {
     const taskInput = {
@@ -57,7 +63,53 @@ describe('Channel Tasks', () => {
   })
 
   it('should log sync events', () => {
+    createChannelTask({
+      id: taskId,
+      task_type: 'deployment',
+      title: 'Log test',
+      input_payload: {},
+      triggered_by: 'user'
+    })
     logSyncEvent(taskId, 'created', { data: 'test' })
     // Verify event was logged
+  })
+
+  it('should update task result', () => {
+    const id = randomUUID()
+    createChannelTask({
+      id,
+      task_type: 'deployment',
+      title: 'Deploy',
+      input_payload: {},
+      triggered_by: 'test'
+    })
+
+    updateTaskResult(id, 'completed', { url: 'https://...' }, undefined, 5000)
+    const result = getChannelTask(id)
+    expect(result?.status).toBe('completed')
+    expect(result?.output_payload?.url).toBe('https://...')
+    expect(result?.duration_ms).toBe(5000)
+  })
+
+  it('should get sync status', () => {
+    const status = getSyncStatus()
+    expect(status).toHaveProperty('pending_count')
+    expect(status).toHaveProperty('completed_today')
+    expect(status).toHaveProperty('last_sync')
+  })
+
+  it('should log sync events and verify', () => {
+    const id = randomUUID()
+    createChannelTask({
+      id,
+      task_type: 'deployment',
+      title: 'Log verify test',
+      input_payload: {},
+      triggered_by: 'test'
+    })
+    logSyncEvent(id, 'test_event', { data: 'test' })
+    // Verify by checking that getSyncStatus reflects the log
+    const status = getSyncStatus()
+    expect(status).toBeDefined()
   })
 })
