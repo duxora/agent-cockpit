@@ -24,11 +24,19 @@ async function pollTasks() {
       })
 
       if (response.ok) {
-        const data = await response.json()
-        if (data.tasks && data.tasks.length > 0) {
-          console.log(`Received ${data.tasks.length} pending tasks`)
-          // Tasks will be processed through channel protocol
-          // Claude Code will receive them as <channel> events
+        const result = await response.json() as unknown
+        if (
+          typeof result === 'object' &&
+          result !== null &&
+          'tasks' in result &&
+          Array.isArray((result as any).tasks)
+        ) {
+          const tasks = (result as any).tasks
+          if (tasks.length > 0) {
+            console.log(`Received ${tasks.length} pending tasks`)
+            // Tasks will be processed through channel protocol
+            // Claude Code will receive them as <channel> events
+          }
         }
       }
     } catch (error) {
@@ -40,7 +48,10 @@ async function pollTasks() {
 }
 
 // Start polling
-pollTasks()
+pollTasks().catch(err => {
+  console.error('Poll loop crashed:', err)
+  process.exit(1)
+})
 
 // Handle shutdown
 process.on('SIGINT', () => {
