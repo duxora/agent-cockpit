@@ -682,13 +682,23 @@ app.get('/api/channel/sync/status', (req, res) => {
   try {
     const status = getSyncStatus()
 
+    // Find the most recently active channel session
+    const channelSessions = listManagedSessions().filter(
+      (s) => s.name === 'claude-code-channel'
+    )
+    const activeSession = channelSessions[0] ?? null
+    const sessionIdle = activeSession && activeSession.status === 'idle'
+
     res.json({
-      session_id: 'claude-session-' + Date.now(),
-      status: status.last_sync ? 'connected' : 'offline',
+      session_id: activeSession?.id ?? null,
+      status: activeSession
+        ? (sessionIdle ? 'idle' : 'connected')
+        : 'offline',
       last_sync: status.last_sync,
       pending_count: status.pending_count,
       completed_today: status.completed_today,
-      in_progress: status.in_progress
+      in_progress: status.in_progress,
+      active_channel_sessions: channelSessions.length,
     })
   } catch (error) {
     console.error('Failed to get sync status:', error)

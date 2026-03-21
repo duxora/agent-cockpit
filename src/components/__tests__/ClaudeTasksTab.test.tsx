@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import '@testing-library/jest-dom'
 import ClaudeTasksTab from '../ClaudeTasksTab'
@@ -10,6 +10,7 @@ const mockSyncStatus = {
   pending_count: 3,
   completed_today: 7,
   in_progress: null,
+  active_channel_sessions: 1,
 }
 
 describe('ClaudeTasksTab', () => {
@@ -80,7 +81,7 @@ describe('ClaudeTasksTab', () => {
     render(<ClaudeTasksTab />)
 
     await waitFor(() => {
-      expect(screen.getByText('Connected')).toBeInTheDocument()
+      expect(screen.getByText('Connected ✓')).toBeInTheDocument()
     })
   })
 
@@ -95,7 +96,7 @@ describe('ClaudeTasksTab', () => {
     render(<ClaudeTasksTab />)
 
     await waitFor(() => {
-      expect(screen.getByText('Offline')).toBeInTheDocument()
+      expect(screen.getByText('Offline ✗')).toBeInTheDocument()
     })
   })
 
@@ -142,7 +143,7 @@ describe('ClaudeTasksTab', () => {
     render(<ClaudeTasksTab />)
 
     await waitFor(() => {
-      expect(screen.getByText('Connected')).toBeInTheDocument()
+      expect(screen.getByText('Connected ✓')).toBeInTheDocument()
     })
 
     const refreshBtn = screen.getByRole('button', { name: /refresh/i })
@@ -165,7 +166,7 @@ describe('ClaudeTasksTab', () => {
       expect(global.fetch).toHaveBeenCalledTimes(1)
     })
 
-    vi.advanceTimersByTime(30000)
+    vi.advanceTimersByTime(15000)
 
     await waitFor(() => {
       expect(global.fetch).toHaveBeenCalledTimes(2)

@@ -7,12 +7,13 @@ interface InProgressTask {
 }
 
 interface SyncStatus {
-  session_id: string
+  session_id: string | null
   status: 'connected' | 'offline' | 'syncing'
   last_sync: string
   pending_count: number
   completed_today: number
   in_progress: InProgressTask | null
+  active_channel_sessions: number
 }
 
 export default function ClaudeTasksTab() {
@@ -35,7 +36,7 @@ export default function ClaudeTasksTab() {
 
   useEffect(() => {
     fetchSyncStatus()
-    const interval = setInterval(fetchSyncStatus, 30000)
+    const interval = setInterval(fetchSyncStatus, 15000)
     return () => clearInterval(interval)
   }, [fetchSyncStatus])
 
@@ -51,14 +52,30 @@ export default function ClaudeTasksTab() {
           <div>
             <h3 className="text-sm font-semibold text-gray-100">Claude Session Status</h3>
             <div className="mt-2 flex items-center gap-2">
-              <div
-                className={`h-2 w-2 rounded-full ${
-                  syncStatus?.status === 'connected' ? 'bg-green-500' : 'bg-gray-500'
-                }`}
-              />
-              <span className="text-sm text-gray-400">
-                {syncStatus?.status === 'connected' ? 'Connected' : 'Offline'}
-              </span>
+              {/* Status config */}
+              {(() => {
+                const statusConfig: Record<string, { color: string; label: string }> = {
+                  connected: { color: 'bg-green-500', label: 'Connected ✓' },
+                  idle: { color: 'bg-yellow-500', label: 'Idle' },
+                  syncing: { color: 'bg-blue-500', label: 'Syncing' },
+                  offline: { color: 'bg-gray-500', label: 'Offline ✗' },
+                }
+                const currentStatus = syncStatus?.status ?? 'offline'
+                const current = statusConfig[currentStatus] || statusConfig.offline
+
+                return (
+                  <>
+                    <div className={`w-2 h-2 rounded-full ${current.color}`} />
+                    <span className="text-sm text-gray-400">{current.label}</span>
+                    {(syncStatus?.active_channel_sessions ?? 0) > 0 && (
+                      <span className="ml-2 text-xs text-gray-500">
+                        {syncStatus!.active_channel_sessions} session
+                        {syncStatus!.active_channel_sessions !== 1 ? 's' : ''}
+                      </span>
+                    )}
+                  </>
+                )
+              })()}
               <span className="ml-4 text-xs text-gray-500">
                 Last sync:{' '}
                 {syncStatus?.last_sync
