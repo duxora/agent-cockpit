@@ -532,4 +532,203 @@ export function getGitHubConfig(): GitHubConfig | null {
   return getGithubConfigStmt.get() as GitHubConfig | null
 }
 
+// --- Channel Tasks ---
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS channel_tasks (
+    id TEXT PRIMARY KEY,
+    task_type TEXT NOT NULL,
+    title TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',
+    input_payload JSON,
+    output_payload JSON,
+    error_message TEXT,
+    triggered_by TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    fetched_at TIMESTAMP,
+    started_at TIMESTAMP,
+    completed_at TIMESTAMP,
+    duration_ms INTEGER,
+    sync_checkpoint TEXT,
+    retry_count INTEGER DEFAULT 0,
+    last_error TEXT
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_channel_tasks_status ON channel_tasks(status);
+  CREATE INDEX IF NOT EXISTS idx_channel_tasks_created_at ON channel_tasks(created_at DESC);
+  CREATE INDEX IF NOT EXISTS idx_channel_tasks_sync ON channel_tasks(status, sync_checkpoint);
+
+  CREATE TABLE IF NOT EXISTS channel_sync_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_id TEXT NOT NULL,
+    event_type TEXT NOT NULL,
+    event_data JSON,
+    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (task_id) REFERENCES channel_tasks(id)
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_channel_sync_log_task ON channel_sync_log(task_id);
+  CREATE INDEX IF NOT EXISTS idx_channel_sync_log_timestamp ON channel_sync_log(timestamp DESC);
+`)
+
+export interface ChannelTask {
+  id: string
+  task_type: string
+  title: string
+  status: 'pending' | 'fetched' | 'executing' | 'completed' | 'failed'
+  input_payload?: Record<string, any>
+  output_payload?: Record<string, any>
+  error_message?: string
+  triggered_by: string
+  created_at: string
+  fetched_at?: string
+  started_at?: string
+  completed_at?: string
+  duration_ms?: number
+}
+
+export function createChannelTask(task: Omit<ChannelTask, 'created_at'>) {
+  const stmt = db.prepare(`
+    INSERT OR IGNORE INTO channel_tasks
+    (id, task_type, title, status, input_payload, triggered_by)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `)
+
+  stmt.run(
+    task.id,
+    task.task_type,
+    task.title,
+    'pending',
+    JSON.stringify(task.input_payload || {}),
+    task.triggered_by
+  )
+
+  logSyncEvent(task.id, 'created', { task_type: task.task_type })
+  return getChannelTask(task.id)
+}
+
+export function getChannelTask(taskId: string): ChannelTask | null {
+  const stmt = db.prepare('SELECT * FROM channel_tasks WHERE id = ?')
+  const row = stmt.get(taskId) as any
+  if (!row) return null
+
+  return {
+    ...row,
+    input_payload: row.input_payload ? JSON.parse(row.input_payload) : undefined,
+    output_payload: row.output_payload ? JSON.parse(row.output_payload) : undefined
+  }
+}
+
+export function listPendingTasks(limit: number): ChannelTask[] {
+  const stmt = db.prepare(`
+    SELECT * FROM channel_tasks
+    WHERE status = 'pending'
+    ORDER BY created_at ASC
+    LIMIT ?
+  `)
+
+  const rows = stmt.all(limit) as any[]
+  return rows.map(row => ({
+    ...row,
+    input_payload: row.input_payload ? JSON.parse(row.input_payload) : undefined,
+    output_payload: row.output_payload ? JSON.parse(row.output_payload) : undefined
+  }))
+}
+
+export function updateTaskStatus(
+  taskId: string,
+  status: string,
+  updates: Record<string, any> = {}
+) {
+  const fields = ['status = ?']
+  const values: any[] = [status]
+
+  if (updates.fetched_at) {
+    fields.push('fetched_at = ?')
+    values.push(new Date().toISOString())
+  }
+  if (updates.started_at) {
+    fields.push('started_at = ?')
+    values.push(new Date().toISOString())
+  }
+  if (updates.completed_at) {
+    fields.push('completed_at = ?')
+    values.push(new Date().toISOString())
+  }
+
+  values.push(taskId)
+  const stmt = db.prepare(`UPDATE channel_tasks SET ${fields.join(', ')} WHERE id = ?`)
+  stmt.run(...values)
+
+  logSyncEvent(taskId, 'status_changed', { status })
+}
+
+export function updateTaskResult(
+  taskId: string,
+  status: 'completed' | 'failed',
+  output: Record<string, any>,
+  error?: string,
+  duration_ms?: number
+) {
+  const stmt = db.prepare(`
+    UPDATE channel_tasks
+    SET status = ?, output_payload = ?, error_message = ?, completed_at = ?, duration_ms = ?
+    WHERE id = ?
+  `)
+
+  stmt.run(
+    status,
+    JSON.stringify(output),
+    error || null,
+    new Date().toISOString(),
+    duration_ms || null,
+    taskId
+  )
+
+  logSyncEvent(taskId, status, { output_keys: Object.keys(output) })
+}
+
+export function logSyncEvent(
+  taskId: string,
+  eventType: string,
+  eventData: Record<string, any> = {}
+) {
+  const stmt = db.prepare(`
+    INSERT INTO channel_sync_log (task_id, event_type, event_data)
+    VALUES (?, ?, ?)
+  `)
+
+  stmt.run(taskId, eventType, JSON.stringify(eventData))
+}
+
+export function getSyncStatus() {
+  const pendingStmt = db.prepare(`
+    SELECT COUNT(*) as count FROM channel_tasks WHERE status = 'pending'
+  `)
+  const pending = (pendingStmt.get() as any).count
+
+  const completedStmt = db.prepare(`
+    SELECT COUNT(*) as count FROM channel_tasks
+    WHERE status = 'completed' AND date(completed_at) = date('now')
+  `)
+  const completed = (completedStmt.get() as any).count
+
+  const inProgressStmt = db.prepare(`
+    SELECT * FROM channel_tasks WHERE status = 'executing' LIMIT 1
+  `)
+  const inProgress = inProgressStmt.get() as any
+
+  const lastSyncStmt = db.prepare(`
+    SELECT timestamp FROM channel_sync_log ORDER BY timestamp DESC LIMIT 1
+  `)
+  const lastSync = (lastSyncStmt.get() as any)?.timestamp
+
+  return {
+    pending_count: pending,
+    completed_today: completed,
+    in_progress: inProgress ? getChannelTask(inProgress.id) : null,
+    last_sync: lastSync
+  }
+}
+
 export default db
