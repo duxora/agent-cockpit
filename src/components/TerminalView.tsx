@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
+import { createKeystrokeBuffer } from '../utils/keystrokeBuffer'
 
 interface Props {
   sessionName: string
@@ -85,11 +86,22 @@ export default function TerminalView({ sessionName }: Props) {
       }
     }
 
-    // Send keyboard input to server
+    // Initialize keystroke buffer
+    const keystrokeBuffer = createKeystrokeBuffer({
+      debounceMs: 50,
+      onSend: (batch) => {
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: 'input', data: batch }))
+        }
+      },
+      isConnectionOpen: () => ws?.readyState === WebSocket.OPEN,
+    })
+
+    // Send keyboard input to server with buffering
     term.onData((data) => {
-      if (ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ type: 'input', data }))
-      }
+      // Local echo: xterm automatically writes data before onData fires
+      // Just buffer and send
+      keystrokeBuffer.handleKeystroke(data)
     })
 
     // Handle resize — sync xterm and tmux pane dimensions
@@ -105,6 +117,7 @@ export default function TerminalView({ sessionName }: Props) {
     window.addEventListener('resize', handleResize)
 
     return () => {
+      keystrokeBuffer.clear()
       window.removeEventListener('resize', handleResize)
       ws.close()
       term.dispose()
