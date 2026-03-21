@@ -62,6 +62,16 @@ app.get('/health', (_req, res) => {
   res.json({ status: 'ok' })
 })
 
+app.get('/api/system/capabilities', (_req, res) => {
+  res.json({
+    platform: process.platform,
+    features: {
+      openInTerminal: process.platform === 'darwin',
+      folderPicker: process.platform === 'darwin',
+    }
+  })
+})
+
 // Serve static files in production
 const distPath = path.join(__dirname, '..', 'dist')
 app.use(express.static(distPath))
