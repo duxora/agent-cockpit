@@ -18,6 +18,7 @@ export function AnalyticsDashboard() {
   const [metrics, setMetrics] = useState<Metric[]>([])
   const [dailyMetrics, setDailyMetrics] = useState<DailyMetric[]>([])
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   const [days, setDays] = useState(30)
 
   useEffect(() => {
@@ -26,13 +27,33 @@ export function AnalyticsDashboard() {
 
   const fetchMetrics = async () => {
     setLoading(true)
+    setError(null)
     try {
       const response = await fetch(`/api/admin/analytics/metrics?days=${days}`)
+
+      // Check HTTP status before parsing JSON
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`)
+      }
+
       const data = await response.json()
-      setMetrics(data.metrics || [])
+
+      // Validate response shape
+      if (!data.metrics || !Array.isArray(data.metrics)) {
+        throw new Error('Invalid metrics response structure: metrics is not an array')
+      }
+      if (typeof data.daily !== 'undefined' && !Array.isArray(data.daily)) {
+        throw new Error('Invalid metrics response structure: daily is not an array')
+      }
+
+      setMetrics(data.metrics)
       setDailyMetrics(data.daily || [])
     } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Failed to fetch metrics'
       console.error('Failed to fetch metrics:', error)
+      setError(errorMessage)
+      setMetrics([])
+      setDailyMetrics([])
     } finally {
       setLoading(false)
     }
@@ -40,9 +61,14 @@ export function AnalyticsDashboard() {
 
   if (loading) return <div className="p-4">Loading metrics...</div>
 
+  if (error) return <div className="p-4 text-red-600 border border-red-400 bg-red-50 rounded">Error: {error}</div>
+
   const totalSessions = metrics.reduce((sum, m) => sum + m.total_sessions, 0)
-  const avgDuration = metrics.length > 0
-    ? Math.round(metrics[0].avg_duration_ms / 1000)
+  // Calculate weighted average duration across all sessions
+  const avgDuration = totalSessions > 0
+    ? Math.round(
+        metrics.reduce((sum, m) => sum + (m.avg_duration_ms * m.total_sessions), 0) / totalSessions / 1000
+      )
     : 0
   const totalTokens = metrics.reduce((sum, m) => sum + m.total_tokens_used, 0)
   const totalCost = metrics.reduce((sum, m) => sum + (m.total_cost_usd || 0), 0)
