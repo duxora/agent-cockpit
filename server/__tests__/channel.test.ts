@@ -20,11 +20,11 @@ describe('Channel Tasks', () => {
       triggered_by: 'user'
     }
 
-    const result = createChannelTask(taskInput)
+    const result = createChannelTask(taskInput)!
     expect(result.id).toBe(taskId)
     expect(result.status).toBe('pending')
 
-    const retrieved = getChannelTask(taskId)
+    const retrieved = getChannelTask(taskId)!
     expect(retrieved.title).toBe('Deploy to production')
   })
 
@@ -52,7 +52,7 @@ describe('Channel Tasks', () => {
     })
 
     updateTaskStatus(taskId, 'fetched', { fetched_at: true })
-    const updated = getChannelTask(taskId)
+    const updated = getChannelTask(taskId)!
     expect(updated.status).toBe('fetched')
   })
 
