@@ -587,7 +587,7 @@ export interface ChannelTask {
   duration_ms?: number
 }
 
-export function createChannelTask(task: Omit<ChannelTask, 'created_at'>) {
+export function createChannelTask(task: Omit<ChannelTask, 'created_at' | 'status'>) {
   const stmt = db.prepare(`
     INSERT OR IGNORE INTO channel_tasks
     (id, task_type, title, status, input_payload, triggered_by)
