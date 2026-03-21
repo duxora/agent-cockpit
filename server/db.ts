@@ -88,6 +88,14 @@ db.exec(`
 
   CREATE INDEX IF NOT EXISTS idx_session_metrics_session_id ON session_metrics(session_id);
   CREATE INDEX IF NOT EXISTS idx_session_metrics_ended_at ON session_metrics(ended_at);
+
+  CREATE TABLE IF NOT EXISTS github_config (
+    id INTEGER PRIMARY KEY,
+    token TEXT NOT NULL,
+    owner TEXT NOT NULL,
+    repo TEXT NOT NULL,
+    updated_at INTEGER DEFAULT (unixepoch())
+  );
 `)
 
 export interface SessionEvent {
@@ -403,6 +411,31 @@ export function getAggregatedMetrics(days: number = 30): any {
   const daily = getDailyMetricsQuery.all(sinceTimestamp)
 
   return { metrics, daily }
+}
+
+// --- GitHub Config ---
+
+const saveGithubConfigStmt = db.prepare(`
+  INSERT OR REPLACE INTO github_config (id, token, owner, repo, updated_at)
+  VALUES (1, ?, ?, ?, unixepoch())
+`)
+
+const getGithubConfigStmt = db.prepare(`
+  SELECT token, owner, repo FROM github_config WHERE id = 1
+`)
+
+export interface GitHubConfig {
+  token: string
+  owner: string
+  repo: string
+}
+
+export function saveGitHubConfig(token: string, owner: string, repo: string): void {
+  saveGithubConfigStmt.run(token, owner, repo)
+}
+
+export function getGitHubConfig(): GitHubConfig | null {
+  return getGithubConfigStmt.get() as GitHubConfig | null
 }
 
 export default db
