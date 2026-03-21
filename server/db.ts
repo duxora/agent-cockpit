@@ -73,6 +73,21 @@ db.exec(`
   );
 
   CREATE INDEX IF NOT EXISTS idx_service_metrics_service_id ON service_metrics(service_id, timestamp);
+
+  CREATE TABLE IF NOT EXISTS session_metrics (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id TEXT NOT NULL,
+    session_name TEXT NOT NULL,
+    model TEXT,
+    duration_ms INTEGER,
+    tokens_used INTEGER,
+    cost_usd REAL,
+    ended_at INTEGER,
+    created_at INTEGER DEFAULT (unixepoch())
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_session_metrics_session_id ON session_metrics(session_id);
+  CREATE INDEX IF NOT EXISTS idx_session_metrics_ended_at ON session_metrics(ended_at);
 `)
 
 export interface SessionEvent {
