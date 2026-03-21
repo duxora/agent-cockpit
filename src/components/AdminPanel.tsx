@@ -3,12 +3,13 @@ import RailwayStatus from './RailwayStatus'
 import MetricsCard from './MetricsCard'
 import VariablesManager from './VariablesManager'
 import { AnalyticsDashboard } from './AnalyticsDashboard'
+import { HooksManager } from './HooksManager'
 import { SkillsManager } from './SkillsManager'
 import { GitHubStatus } from './GitHubStatus'
 import { Settings } from 'lucide-react'
 
 export default function AdminPanel() {
-  const [activeTab, setActiveTab] = useState<'railway' | 'settings' | 'analytics' | 'skills' | 'github'>('railway')
+  const [activeTab, setActiveTab] = useState<'railway' | 'settings' | 'analytics' | 'skills' | 'hooks' | 'github'>('railway')
 
   return (
     <div className="flex h-full flex-col">
@@ -17,10 +18,10 @@ export default function AdminPanel() {
         <h2 className="text-lg font-semibold text-gray-100">Administration</h2>
       </div>
 
-      <div className="flex border-b border-gray-800">
+      <div className="flex border-b border-gray-800 overflow-x-auto">
         <button
           onClick={() => setActiveTab('railway')}
-          className={`flex-1 px-4 py-2 text-sm font-medium ${
+          className={`px-4 py-2 text-sm font-medium whitespace-nowrap ${
             activeTab === 'railway'
               ? 'border-b-2 border-blue-500 text-blue-400'
               : 'text-gray-500 hover:text-gray-300'
@@ -30,7 +31,7 @@ export default function AdminPanel() {
         </button>
         <button
           onClick={() => setActiveTab('analytics')}
-          className={`flex-1 px-4 py-2 text-sm font-medium ${
+          className={`px-4 py-2 text-sm font-medium whitespace-nowrap ${
             activeTab === 'analytics'
               ? 'border-b-2 border-blue-500 text-blue-400'
               : 'text-gray-500 hover:text-gray-300'
@@ -40,7 +41,7 @@ export default function AdminPanel() {
         </button>
         <button
           onClick={() => setActiveTab('skills')}
-          className={`flex-1 px-4 py-2 text-sm font-medium ${
+          className={`px-4 py-2 text-sm font-medium whitespace-nowrap ${
             activeTab === 'skills'
               ? 'border-b-2 border-blue-500 text-blue-400'
               : 'text-gray-500 hover:text-gray-300'
@@ -49,8 +50,18 @@ export default function AdminPanel() {
           Skills
         </button>
         <button
+          onClick={() => setActiveTab('hooks')}
+          className={`px-4 py-2 text-sm font-medium whitespace-nowrap ${
+            activeTab === 'hooks'
+              ? 'border-b-2 border-blue-500 text-blue-400'
+              : 'text-gray-500 hover:text-gray-300'
+          }`}
+        >
+          Hooks
+        </button>
+        <button
           onClick={() => setActiveTab('github')}
-          className={`flex-1 px-4 py-2 text-sm font-medium ${
+          className={`px-4 py-2 text-sm font-medium whitespace-nowrap ${
             activeTab === 'github'
               ? 'border-b-2 border-blue-500 text-blue-400'
               : 'text-gray-500 hover:text-gray-300'
@@ -60,7 +71,7 @@ export default function AdminPanel() {
         </button>
         <button
           onClick={() => setActiveTab('settings')}
-          className={`flex-1 px-4 py-2 text-sm font-medium ${
+          className={`px-4 py-2 text-sm font-medium whitespace-nowrap ${
             activeTab === 'settings'
               ? 'border-b-2 border-blue-500 text-blue-400'
               : 'text-gray-500 hover:text-gray-300'
@@ -80,6 +91,7 @@ export default function AdminPanel() {
         )}
         {activeTab === 'analytics' && <AnalyticsDashboard />}
         {activeTab === 'skills' && <SkillsManager />}
+        {activeTab === 'hooks' && <HooksManager />}
         {activeTab === 'github' && <GitHubStatus />}
         {activeTab === 'settings' && (
           <div className="text-gray-500 text-sm">Settings panel (existing content)</div>
