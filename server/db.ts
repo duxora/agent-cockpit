@@ -73,6 +73,42 @@ db.exec(`
   );
 
   CREATE INDEX IF NOT EXISTS idx_service_metrics_service_id ON service_metrics(service_id, timestamp);
+
+  CREATE TABLE IF NOT EXISTS session_metrics (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id TEXT NOT NULL,
+    session_name TEXT NOT NULL,
+    model TEXT,
+    duration_ms INTEGER,
+    tokens_used INTEGER,
+    cost_usd REAL,
+    ended_at INTEGER,
+    created_at INTEGER DEFAULT (unixepoch())
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_session_metrics_session_id ON session_metrics(session_id);
+  CREATE INDEX IF NOT EXISTS idx_session_metrics_ended_at ON session_metrics(ended_at);
+
+  CREATE TABLE IF NOT EXISTS github_config (
+    id INTEGER PRIMARY KEY,
+    token TEXT NOT NULL,
+    owner TEXT NOT NULL,
+    repo TEXT NOT NULL,
+    updated_at INTEGER DEFAULT (unixepoch())
+  );
+
+  CREATE TABLE IF NOT EXISTS hooks (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    hook_type TEXT NOT NULL,
+    trigger TEXT NOT NULL,
+    name TEXT NOT NULL,
+    command TEXT NOT NULL,
+    enabled BOOLEAN DEFAULT 1,
+    created_at INTEGER DEFAULT (unixepoch())
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_hooks_hook_type ON hooks(hook_type);
+  CREATE INDEX IF NOT EXISTS idx_hooks_enabled ON hooks(enabled);
 `)
 
 export interface SessionEvent {
@@ -308,6 +344,192 @@ export function logMetric(
 export function getMetrics(serviceId: string, hoursBack = 24, limit = 100): ServiceMetric[] {
   const since = Math.floor(Date.now() / 1000) - (hoursBack * 3600)
   return getMetricsRange.all(serviceId, since, limit) as ServiceMetric[]
+}
+
+// --- Session Metrics ---
+
+export interface SessionMetric {
+  sessionId: string
+  sessionName: string
+  model?: string
+  durationMs: number
+  tokensUsed: number
+  costUsd?: number
+  endedAt: number
+}
+
+const insertSessionMetric = db.prepare(`
+  INSERT INTO session_metrics
+  (session_id, session_name, model, duration_ms, tokens_used, cost_usd, ended_at)
+  VALUES (?, ?, ?, ?, ?, ?, ?)
+`)
+
+const getSessionMetricById = db.prepare(`
+  SELECT * FROM session_metrics WHERE session_id = ?
+`)
+
+const getAggregatedMetricsQuery = db.prepare(`
+  SELECT
+    COUNT(*) as total_sessions,
+    AVG(duration_ms) as avg_duration_ms,
+    SUM(tokens_used) as total_tokens_used,
+    SUM(cost_usd) as total_cost_usd,
+    model
+  FROM session_metrics
+  WHERE ended_at > ?
+  GROUP BY model
+`)
+
+const getDailyMetricsQuery = db.prepare(`
+  SELECT
+    DATE(ended_at, 'unixepoch') as date,
+    COUNT(*) as sessions,
+    SUM(tokens_used) as tokens
+  FROM session_metrics
+  WHERE ended_at > ?
+  GROUP BY DATE(ended_at, 'unixepoch')
+  ORDER BY date DESC
+`)
+
+export function logSessionMetrics(metric: SessionMetric): void {
+  insertSessionMetric.run(
+    metric.sessionId,
+    metric.sessionName,
+    metric.model || null,
+    metric.durationMs,
+    metric.tokensUsed,
+    metric.costUsd || null,
+    metric.endedAt
+  )
+}
+
+export function getSessionMetrics(sessionId: string): SessionMetric | null {
+  const metric = getSessionMetricById.get(sessionId) as any
+
+  return metric ? {
+    sessionId: metric.session_id,
+    sessionName: metric.session_name,
+    model: metric.model,
+    durationMs: metric.duration_ms,
+    tokensUsed: metric.tokens_used,
+    costUsd: metric.cost_usd,
+    endedAt: metric.ended_at
+  } : null
+}
+
+export function getAggregatedMetrics(days: number = 30): any {
+  const sinceTimestamp = Math.floor(Date.now() / 1000) - (days * 86400)
+
+  const metrics = getAggregatedMetricsQuery.all(sinceTimestamp)
+  const daily = getDailyMetricsQuery.all(sinceTimestamp)
+
+  return { metrics, daily }
+}
+
+// --- Hooks ---
+
+export interface Hook {
+  id: number
+  hook_type: 'pre-session' | 'post-session'
+  trigger: 'on-start' | 'on-end' | 'manual'
+  name: string
+  command: string
+  enabled: boolean
+  created_at: number
+}
+
+const insertHook = db.prepare(`
+  INSERT INTO hooks (hook_type, trigger, name, command, enabled)
+  VALUES (?, ?, ?, ?, ?)
+`)
+
+const selectAllHooks = db.prepare(`
+  SELECT * FROM hooks ORDER BY created_at DESC
+`)
+
+const selectHooksByType = db.prepare(`
+  SELECT * FROM hooks WHERE hook_type = ? ORDER BY created_at DESC
+`)
+
+const selectHookById = db.prepare(`
+  SELECT * FROM hooks WHERE id = ?
+`)
+
+const updateHookStmt = db.prepare(`
+  UPDATE hooks SET name = ?, command = ?, enabled = ? WHERE id = ?
+`)
+
+const deleteHookStmt = db.prepare(`
+  DELETE FROM hooks WHERE id = ?
+`)
+
+export function createHook(hookData: Omit<Hook, 'id' | 'created_at'>): Hook {
+  const result = insertHook.run(
+    hookData.hook_type,
+    hookData.trigger,
+    hookData.name,
+    hookData.command,
+    hookData.enabled ? 1 : 0
+  )
+
+  return {
+    id: Number(result.lastInsertRowid),
+    ...hookData,
+    created_at: Math.floor(Date.now() / 1000)
+  }
+}
+
+export function listHooks(filterType?: string): Hook[] {
+  if (filterType) {
+    return selectHooksByType.all(filterType) as Hook[]
+  }
+  return selectAllHooks.all() as Hook[]
+}
+
+export function getHook(id: number): Hook | null {
+  return selectHookById.get(id) as Hook | null
+}
+
+export function updateHook(id: number, updates: Partial<Omit<Hook, 'id' | 'created_at'>>): Hook | null {
+  const hook = getHook(id)
+  if (!hook) return null
+
+  const name = updates.name ?? hook.name
+  const command = updates.command ?? hook.command
+  const enabled = updates.enabled !== undefined ? updates.enabled : hook.enabled
+
+  updateHookStmt.run(name, command, enabled ? 1 : 0, id)
+
+  return { ...hook, name, command, enabled }
+}
+
+export function deleteHook(id: number): boolean {
+  return deleteHookStmt.run(id).changes > 0
+}
+
+// --- GitHub Config ---
+
+const saveGithubConfigStmt = db.prepare(`
+  INSERT OR REPLACE INTO github_config (id, token, owner, repo, updated_at)
+  VALUES (1, ?, ?, ?, unixepoch())
+`)
+
+const getGithubConfigStmt = db.prepare(`
+  SELECT token, owner, repo FROM github_config WHERE id = 1
+`)
+
+export interface GitHubConfig {
+  token: string
+  owner: string
+  repo: string
+}
+
+export function saveGitHubConfig(token: string, owner: string, repo: string): void {
+  saveGithubConfigStmt.run(token, owner, repo)
+}
+
+export function getGitHubConfig(): GitHubConfig | null {
+  return getGithubConfigStmt.get() as GitHubConfig | null
 }
 
 export default db

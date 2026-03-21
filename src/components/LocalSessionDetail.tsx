@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Monitor, Clock, MapPin, Wifi, WifiOff, Laptop, TerminalSquare } from 'lucide-react'
 import type { Session } from '../types'
 import SessionTimeline from './SessionTimeline'
@@ -33,6 +33,15 @@ interface Props {
 export default function LocalSessionDetail({ session }: Props) {
   const cfg = STATUS_CONFIG[session.status] || STATUS_CONFIG.dead
   const [opening, setOpening] = useState(false)
+  const [capabilities, setCapabilities] = useState<{ openInTerminal: boolean } | null>(null)
+
+  // Fetch capabilities on mount
+  useEffect(() => {
+    fetch('/api/system/capabilities')
+      .then(r => r.json())
+      .then(data => setCapabilities(data.features))
+      .catch(() => setCapabilities({ openInTerminal: false }))
+  }, [])
 
   const handleOpenTerminal = async () => {
     if (!session.sessionId) return
@@ -114,7 +123,7 @@ export default function LocalSessionDetail({ session }: Props) {
 
       {/* Actions */}
       <div className="mx-6 space-y-3">
-        {session.sessionId && (
+        {session.sessionId && capabilities?.openInTerminal && (
           <button
             onClick={handleOpenTerminal}
             disabled={opening}

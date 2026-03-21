@@ -9,8 +9,14 @@ export default defineConfig({
   },
   test: {
     globals: true,
-    environment: 'node',
-    include: ['tests/**/*.test.ts'],
+    environment: 'jsdom',
+    include: [
+      'src/**/__tests__/*.test.ts',
+      'src/**/__tests__/*.test.tsx',
+      'server/**/__tests__/*.test.ts',
+      'tests/**/*.test.ts',
+      'tests/**/*.test.tsx'
+    ],
     testTimeout: 10000,
   },
 })

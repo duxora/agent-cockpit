@@ -21,8 +21,13 @@ import {
   getManagedSessionById, listManagedSessions, cleanupManagedSessions,
   createTemplate, listTemplates, removeTemplate,
   upsertDeploymentRecord, listDeployments, logMetric, getMetrics,
+  logSessionMetrics, getAggregatedMetrics, getSessionMetrics,
+  saveGitHubConfig, getGitHubConfig,
+  createHook, listHooks, updateHook, deleteHook,
 } from './db.js'
 import { initRailway, fetchDeployments, fetchMetrics, fetchEnvironmentVariables } from './railway.js'
+import { initGitHub, fetchPRs, fetchIssues, fetchBranches } from './github.js'
+import { listAvailableSkills, getSkillMetadata } from './skills.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const app = express()
@@ -30,6 +35,7 @@ const server = createServer(app)
 const PORT = parseInt(process.env.PORT || '4200')
 
 initRailway()
+initGitHub()
 
 app.use(express.json())
 
@@ -60,6 +66,16 @@ if (COCKPIT_PASSWORD) {
 
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok' })
+})
+
+app.get('/api/system/capabilities', (_req, res) => {
+  res.json({
+    platform: process.platform,
+    features: {
+      openInTerminal: process.platform === 'darwin',
+      folderPicker: process.platform === 'darwin',
+    }
+  })
 })
 
 // Serve static files in production
@@ -296,6 +312,230 @@ app.get('/api/admin/railway/variables', async (req, res) => {
   res.json(vars)
 })
 
+// --- GitHub Admin Endpoints ---
+
+app.get('/api/admin/github/config', (req, res) => {
+  const config = getGitHubConfig()
+  if (config) {
+    res.json({ owner: config.owner, repo: config.repo })
+  } else {
+    res.json({ owner: '', repo: '' })
+  }
+})
+
+app.post('/api/admin/github/config', (req, res) => {
+  const { token, owner, repo } = req.body
+
+  if (!token || !owner || !repo) {
+    res.status(400).json({ error: 'Missing fields' })
+    return
+  }
+
+  try {
+    saveGitHubConfig(token, owner, repo)
+    initGitHub()
+    res.json({ success: true })
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to save config' })
+  }
+})
+
+app.get('/api/admin/github/prs', async (req, res) => {
+  const config = getGitHubConfig()
+  if (!config) {
+    res.status(400).json({ error: 'GitHub not configured' })
+    return
+  }
+
+  try {
+    const prs = await fetchPRs(config.owner, config.repo)
+    res.json(prs)
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to fetch PRs' })
+  }
+})
+
+app.get('/api/admin/github/issues', async (req, res) => {
+  const config = getGitHubConfig()
+  if (!config) {
+    res.status(400).json({ error: 'GitHub not configured' })
+    return
+  }
+
+  try {
+    const issues = await fetchIssues(config.owner, config.repo)
+    res.json(issues)
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to fetch issues' })
+  }
+})
+
+app.get('/api/admin/github/branches', async (req, res) => {
+  const config = getGitHubConfig()
+  if (!config) {
+    res.status(400).json({ error: 'GitHub not configured' })
+    return
+  }
+
+  try {
+    const branches = await fetchBranches(config.owner, config.repo)
+    res.json(branches)
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to fetch branches' })
+  }
+})
+
+// --- Analytics Endpoints ---
+
+app.get('/api/admin/analytics/metrics', (req, res) => {
+  // Check auth
+  const auth = req.headers.authorization?.split(' ')[1]
+  const credentials = Buffer.from(auth || '', 'base64').toString()
+  const [user, pass] = credentials.split(':')
+
+  if (user !== COCKPIT_USER || pass !== COCKPIT_PASSWORD) {
+    res.status(401).json({ error: 'Unauthorized' })
+    return
+  }
+
+  try {
+    const days = parseInt(req.query.days as string) || 30
+    const data = getAggregatedMetrics(days)
+    res.json(data)
+  } catch (error) {
+    console.error('Failed to get analytics metrics:', error)
+    res.status(500).json({ error: 'Failed to get metrics' })
+  }
+})
+
+app.get('/api/admin/analytics/history', (req, res) => {
+  // Check auth
+  const auth = req.headers.authorization?.split(' ')[1]
+  const credentials = Buffer.from(auth || '', 'base64').toString()
+  const [user, pass] = credentials.split(':')
+
+  if (user !== COCKPIT_USER || pass !== COCKPIT_PASSWORD) {
+    res.status(401).json({ error: 'Unauthorized' })
+    return
+  }
+
+  try {
+    const sessionId = req.query.session_id as string
+    if (!sessionId) {
+      res.status(400).json({ error: 'session_id required' })
+      return
+    }
+    const metric = getSessionMetrics(sessionId)
+    if (!metric) {
+      res.status(404).json({ error: 'Session not found' })
+      return
+    }
+    res.json(metric)
+  } catch (error) {
+    console.error('Failed to get session history:', error)
+    res.status(500).json({ error: 'Failed to get session history' })
+  }
+})
+
+// --- Hooks Management Endpoints (no auth for frontend) ---
+
+app.get('/api/hooks', (req, res) => {
+  try {
+    const hookType = req.query.type as string | undefined
+    const hooks = listHooks(hookType)
+    res.json(hooks)
+  } catch (error) {
+    console.error('Failed to list hooks:', error)
+    res.status(500).json({ error: 'Failed to list hooks' })
+  }
+})
+
+app.post('/api/hooks', (req, res) => {
+  try {
+    const { hook_type, trigger, name, command, enabled } = req.body
+
+    if (!hook_type || !trigger || !name || !command) {
+      res.status(400).json({ error: 'Missing required fields' })
+      return
+    }
+
+    const hook = createHook({
+      hook_type,
+      trigger,
+      name,
+      command,
+      enabled: enabled !== false
+    })
+    res.status(201).json(hook)
+  } catch (error) {
+    console.error('Failed to create hook:', error)
+    res.status(500).json({ error: 'Failed to create hook' })
+  }
+})
+
+app.put('/api/hooks/:id', (req, res) => {
+  try {
+    const id = parseInt(req.params.id)
+    const { enabled, command, name } = req.body
+
+    const updated = updateHook(id, { enabled, command, name })
+    if (!updated) {
+      res.status(404).json({ error: 'Hook not found' })
+      return
+    }
+
+    res.json(updated)
+  } catch (error) {
+    console.error('Failed to update hook:', error)
+    res.status(500).json({ error: 'Failed to update hook' })
+  }
+})
+
+app.delete('/api/hooks/:id', (req, res) => {
+  try {
+    const id = parseInt(req.params.id)
+
+    const success = deleteHook(id)
+    if (!success) {
+      res.status(404).json({ error: 'Hook not found' })
+      return
+    }
+
+    res.json({ success: true })
+  } catch (error) {
+    console.error('Failed to delete hook:', error)
+    res.status(500).json({ error: 'Failed to delete hook' })
+  }
+})
+
+// --- Skills Endpoints ---
+
+app.get('/api/skills', async (req, res) => {
+  try {
+    const skills = await listAvailableSkills()
+    res.json(skills)
+  } catch (error) {
+    console.error('Failed to list skills:', error)
+    res.status(500).json({ error: 'Failed to list skills' })
+  }
+})
+
+app.get('/api/skills/:name', async (req, res) => {
+  const { name } = req.params
+
+  try {
+    const skill = getSkillMetadata(name)
+    if (!skill) {
+      res.status(404).json({ error: 'Skill not found' })
+      return
+    }
+    res.json(skill)
+  } catch (error) {
+    console.error('Failed to get skill metadata:', error)
+    res.status(500).json({ error: 'Failed to get skill metadata' })
+  }
+})
+
 // --- Open in Terminal (local only) ---
 
 app.post('/api/sessions/:id/open-terminal', (req, res) => {
@@ -367,6 +607,21 @@ app.post('/api/hooks/session-end', (req, res) => {
   }
   const managed = getManagedSessionById(session_id)
   const eventName = managed?.name || session_id
+
+  // Log session metrics when session ends
+  if (managed) {
+    const durationMs = (Math.floor(Date.now() / 1000) - managed.started_at) * 1000
+    logSessionMetrics({
+      sessionId: session_id,
+      sessionName: managed.name,
+      model: 'sonnet',
+      durationMs,
+      tokensUsed: 0,
+      costUsd: undefined,
+      endedAt: Math.floor(Date.now() / 1000),
+    })
+  }
+
   endManagedSession(session_id)
   logEvent(eventName, 'ended')
   broadcastSessions()
