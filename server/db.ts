@@ -325,4 +325,84 @@ export function getMetrics(serviceId: string, hoursBack = 24, limit = 100): Serv
   return getMetricsRange.all(serviceId, since, limit) as ServiceMetric[]
 }
 
+// --- Session Metrics ---
+
+export interface SessionMetric {
+  sessionId: string
+  sessionName: string
+  model?: string
+  durationMs: number
+  tokensUsed: number
+  costUsd?: number
+  endedAt: number
+}
+
+const insertSessionMetric = db.prepare(`
+  INSERT INTO session_metrics
+  (session_id, session_name, model, duration_ms, tokens_used, cost_usd, ended_at)
+  VALUES (?, ?, ?, ?, ?, ?, ?)
+`)
+
+const getSessionMetricById = db.prepare(`
+  SELECT * FROM session_metrics WHERE session_id = ?
+`)
+
+const getAggregatedMetricsQuery = db.prepare(`
+  SELECT
+    COUNT(*) as total_sessions,
+    AVG(duration_ms) as avg_duration_ms,
+    SUM(tokens_used) as total_tokens_used,
+    SUM(cost_usd) as total_cost_usd,
+    model
+  FROM session_metrics
+  WHERE ended_at > ?
+  GROUP BY model
+`)
+
+const getDailyMetricsQuery = db.prepare(`
+  SELECT
+    DATE(ended_at, 'unixepoch') as date,
+    COUNT(*) as sessions,
+    SUM(tokens_used) as tokens
+  FROM session_metrics
+  WHERE ended_at > ?
+  GROUP BY DATE(ended_at, 'unixepoch')
+  ORDER BY date DESC
+`)
+
+export function logSessionMetrics(metric: SessionMetric): void {
+  insertSessionMetric.run(
+    metric.sessionId,
+    metric.sessionName,
+    metric.model || null,
+    metric.durationMs,
+    metric.tokensUsed,
+    metric.costUsd || null,
+    metric.endedAt
+  )
+}
+
+export function getSessionMetrics(sessionId: string): SessionMetric | null {
+  const metric = getSessionMetricById.get(sessionId) as any
+
+  return metric ? {
+    sessionId: metric.session_id,
+    sessionName: metric.session_name,
+    model: metric.model,
+    durationMs: metric.duration_ms,
+    tokensUsed: metric.tokens_used,
+    costUsd: metric.cost_usd,
+    endedAt: metric.ended_at
+  } : null
+}
+
+export function getAggregatedMetrics(days: number = 30): any {
+  const sinceTimestamp = Math.floor(Date.now() / 1000) - (days * 86400)
+
+  const metrics = getAggregatedMetricsQuery.all(sinceTimestamp)
+  const daily = getDailyMetricsQuery.all(sinceTimestamp)
+
+  return { metrics, daily }
+}
+
 export default db
