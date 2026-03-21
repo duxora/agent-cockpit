@@ -113,3 +113,70 @@ describe('Channel Tasks', () => {
     expect(status).toBeDefined()
   })
 })
+
+describe('Channel API Endpoints', () => {
+  it('GET /api/channel/tasks/pending should return pending tasks', async () => {
+    const response = await fetch(
+      'http://localhost:4200/api/channel/tasks/pending',
+      {
+        headers: {
+          'Authorization': 'Basic ' + Buffer.from('admin:spartan2026').toString('base64')
+        }
+      }
+    )
+
+    expect(response.status).toBe(200)
+    const data = await response.json()
+    expect(data).toHaveProperty('tasks')
+    expect(Array.isArray(data.tasks)).toBe(true)
+    expect(data).toHaveProperty('checkpoint')
+  })
+
+  it('POST /api/channel/tasks/{id}/result should accept task result', async () => {
+    const taskId = randomUUID()
+    createChannelTask({
+      id: taskId,
+      task_type: 'deployment',
+      title: 'Test deploy',
+      input_payload: {},
+      triggered_by: 'test'
+    })
+
+    const response = await fetch(
+      `http://localhost:4200/api/channel/tasks/${taskId}/result`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Basic ' + Buffer.from('admin:spartan2026').toString('base64')
+        },
+        body: JSON.stringify({
+          status: 'completed',
+          output_payload: { url: 'https://...' },
+          duration_ms: 5000
+        })
+      }
+    )
+
+    expect(response.status).toBe(200)
+    const data = await response.json()
+    expect(data).toHaveProperty('acknowledged', true)
+  })
+
+  it('GET /api/channel/sync/status should return sync state', async () => {
+    const response = await fetch(
+      'http://localhost:4200/api/channel/sync/status',
+      {
+        headers: {
+          'Authorization': 'Basic ' + Buffer.from('admin:spartan2026').toString('base64')
+        }
+      }
+    )
+
+    expect(response.status).toBe(200)
+    const data = await response.json()
+    expect(data).toHaveProperty('status')
+    expect(data).toHaveProperty('pending_count')
+    expect(data).toHaveProperty('completed_today')
+  })
+})
