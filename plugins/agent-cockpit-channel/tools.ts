@@ -36,14 +36,10 @@ export function createChannelTools(client: AgentCockpitClient): ChannelTools {
           // In real implementation, would query task status from database
           return {
             task_id: params.task_id,
-            message: 'Query task tool available for Claude to invoke'
+            message: 'Query task tool available - use for status checks'
           }
         } catch (error) {
-          const err = error as Error
-          return {
-            error: true,
-            message: `Failed to query task: ${err.message}`
-          }
+          throw new Error(`Failed to query task: ${(error as Error).message}`)
         }
       }
     },
@@ -67,16 +63,12 @@ export function createChannelTools(client: AgentCockpitClient): ChannelTools {
       handler: async (params: { task_id: string; suggestion: string }) => {
         try {
           return {
-            acknowledged: true,
             task_id: params.task_id,
-            message: `Suggestion logged: ${params.suggestion}`
+            acknowledged: true,
+            message: `Suggestion recorded: ${params.suggestion}`
           }
         } catch (error) {
-          const err = error as Error
-          return {
-            error: true,
-            message: `Failed to log suggestion: ${err.message}`
-          }
+          throw new Error(`Failed to log suggestion: ${(error as Error).message}`)
         }
       }
     },
@@ -101,18 +93,19 @@ export function createChannelTools(client: AgentCockpitClient): ChannelTools {
         },
         required: ['task_type', 'title']
       },
-      handler: async (params: any) => {
+      handler: async (params: {
+        task_type: string
+        title: string
+        input_payload?: Record<string, unknown>
+      }) => {
         try {
           return {
-            acknowledged: true,
-            message: 'Trigger task requires user approval via automation rule'
+            message: 'Task trigger requires automation rule approval',
+            task_type: params.task_type,
+            title: params.title
           }
         } catch (error) {
-          const err = error as Error
-          return {
-            error: true,
-            message: `Failed to trigger task: ${err.message}`
-          }
+          throw new Error(`Failed to trigger task: ${(error as Error).message}`)
         }
       }
     }
