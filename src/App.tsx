@@ -6,11 +6,19 @@ import LocalSessionDetail from './components/LocalSessionDetail'
 import NewSessionModal from './components/NewSessionModal'
 import SettingsModal from './components/SettingsModal'
 import AdminPanel from './components/AdminPanel'
+import LoginPage from './pages/LoginPage'
 import { useWebSocket } from './hooks/useWebSocket'
 import { useNotifications } from './hooks/useNotifications'
 import type { Session } from './types'
 
+interface User {
+  email: string
+  role: string
+}
+
 export default function App() {
+  const [isAuthenticated, setIsAuthenticated] = useState<null | boolean>(null)
+  const [user, setUser] = useState<null | User>(null)
   const [sessions, setSessions] = useState<Session[]>([])
   const [selectedSession, setSelectedSession] = useState<string | null>(null)
   const [showNewModal, setShowNewModal] = useState(false)
@@ -20,6 +28,26 @@ export default function App() {
   const [splitLayout, setSplitLayout] = useState<'1x2' | '2x2' | '1x3' | '2x3'>('2x2')
   const [searchQuery, setSearchQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState<string>('all')
+
+  // Check authentication on mount
+  useEffect(() => {
+    const checkAuth = async () => {
+      try {
+        const response = await fetch('/api/auth/me')
+        if (response.ok) {
+          const userData = await response.json()
+          setUser(userData)
+          setIsAuthenticated(true)
+        } else {
+          setIsAuthenticated(false)
+        }
+      } catch {
+        setIsAuthenticated(false)
+      }
+    }
+
+    checkAuth()
+  }, [])
 
   // WebSocket for real-time session updates
   const { data: wsMessage, connected } = useWebSocket<{ type: string; data: Session[] }>('/ws/events')
@@ -85,6 +113,23 @@ export default function App() {
     const data = await res.json()
     setSessions(data)
   }, [])
+
+  // Show loading spinner while checking authentication
+  if (isAuthenticated === null) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-gray-900">
+        <div className="flex flex-col items-center gap-3">
+          <div className="h-8 w-8 animate-spin rounded-full border-4 border-gray-700 border-t-blue-500" />
+          <p className="text-gray-400">Loading...</p>
+        </div>
+      </div>
+    )
+  }
+
+  // Show login page if not authenticated
+  if (!isAuthenticated) {
+    return <LoginPage />
+  }
 
   const sortedSessions = [...sessions].sort((a, b) => {
     const priority: Record<string, number> = { waiting: 0, active: 1, idle: 2, stopped: 3, dead: 4 }
