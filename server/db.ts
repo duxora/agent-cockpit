@@ -588,6 +588,19 @@ const cleanupExpiredSharesStmt = db.prepare('DELETE FROM session_shares WHERE ex
 
 const updateShareAccessTimeStmt = db.prepare('UPDATE session_shares SET accessed_at = ? WHERE id = ?')
 
+function mapDbRowToSessionShare(row: any): SessionShare {
+  return {
+    id: row.id,
+    sessionId: row.session_id,
+    accessLevel: row.access_level,
+    passwordHash: row.password_hash,
+    createdBy: row.created_by,
+    createdAt: row.created_at,
+    expiresAt: row.expires_at,
+    accessedAt: row.accessed_at
+  }
+}
+
 export function createShare(
   id: string,
   sessionId: string,
@@ -597,46 +610,20 @@ export function createShare(
   expiresAt?: number
 ): SessionShare {
   createShareStmt.run(id, sessionId, accessLevel, passwordHash, createdBy, expiresAt ?? null)
-  const share = getShareStmt.get(id) as any
-  return {
-    id: share.id,
-    sessionId: share.session_id,
-    accessLevel: share.access_level,
-    passwordHash: share.password_hash,
-    createdBy: share.created_by,
-    createdAt: share.created_at,
-    expiresAt: share.expires_at,
-    accessedAt: share.accessed_at
-  }
+  const result = getShareStmt.get(id) as any
+  if (!result) throw new Error(`Failed to create share: ${id}`)
+  return mapDbRowToSessionShare(result)
 }
 
 export function getShare(id: string): SessionShare | undefined {
   const share = getShareStmt.get(id) as any
   if (!share) return undefined
-  return {
-    id: share.id,
-    sessionId: share.session_id,
-    accessLevel: share.access_level,
-    passwordHash: share.password_hash,
-    createdBy: share.created_by,
-    createdAt: share.created_at,
-    expiresAt: share.expires_at,
-    accessedAt: share.accessed_at
-  }
+  return mapDbRowToSessionShare(share)
 }
 
 export function listShares(sessionId: string): SessionShare[] {
   const shares = listSharesStmt.all(sessionId) as any[]
-  return shares.map(share => ({
-    id: share.id,
-    sessionId: share.session_id,
-    accessLevel: share.access_level,
-    passwordHash: share.password_hash,
-    createdBy: share.created_by,
-    createdAt: share.created_at,
-    expiresAt: share.expires_at,
-    accessedAt: share.accessed_at
-  }))
+  return shares.map(mapDbRowToSessionShare)
 }
 
 export function deleteShare(id: string): boolean {
@@ -648,9 +635,9 @@ export function cleanupExpiredShares(): void {
   cleanupExpiredSharesStmt.run(now)
 }
 
-export function updateShareAccessTime(id: string): void {
+export function updateShareAccessTime(id: string): boolean {
   const now = Math.floor(Date.now() / 1000)
-  updateShareAccessTimeStmt.run(now, id)
+  return updateShareAccessTimeStmt.run(now, id).changes > 0
 }
 
 // --- GitHub Config ---
