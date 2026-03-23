@@ -2,17 +2,20 @@ import { useEffect, useRef, useState } from 'react'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
+import TextLog from './TextLog'
 
 interface Props {
   sessionName: string
+  session?: { display_mode?: 'terminal' | 'text'; outputs?: string[] }
 }
 
-export default function TerminalView({ sessionName }: Props) {
+export default function TerminalView({ sessionName, session }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   const termRef = useRef<Terminal | null>(null)
   const wsRef = useRef<WebSocket | null>(null)
   const fitAddonRef = useRef<FitAddon | null>(null)
   const [connected, setConnected] = useState(false)
+  const [displayMode, setDisplayMode] = useState<'terminal' | 'text'>(session?.display_mode || 'terminal')
 
   useEffect(() => {
     if (!containerRef.current) return
@@ -114,6 +117,22 @@ export default function TerminalView({ sessionName }: Props) {
     }
   }, [sessionName])
 
+  const toggleTextMode = async () => {
+    const newMode = displayMode === 'terminal' ? 'text' : 'terminal'
+    setDisplayMode(newMode)
+
+    try {
+      await fetch(`/api/sessions/${sessionName}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ displayMode: newMode })
+      })
+    } catch (error) {
+      console.error('Failed to update display mode:', error)
+      setDisplayMode(displayMode) // Revert on error
+    }
+  }
+
   return (
     <div className="flex h-full flex-col">
       <div className="flex items-center justify-between border-b border-gray-700 px-4 py-2">
@@ -121,11 +140,24 @@ export default function TerminalView({ sessionName }: Props) {
           <span className={`h-2 w-2 rounded-full ${connected ? 'bg-green-500' : 'bg-red-500'}`} />
           <span className="font-mono text-sm text-gray-300">{sessionName}</span>
         </div>
-        <span className="text-xs text-gray-500">
-          {connected ? 'Connected' : 'Disconnected'}
-        </span>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={toggleTextMode}
+            className="px-3 py-1 text-sm bg-gray-700 hover:bg-gray-600 text-white rounded"
+            title={`Switch to ${displayMode === 'terminal' ? 'text' : 'terminal'} mode`}
+          >
+            {displayMode === 'terminal' ? '📄 Text' : '💻 Terminal'}
+          </button>
+          <span className="text-xs text-gray-500">
+            {connected ? 'Connected' : 'Disconnected'}
+          </span>
+        </div>
       </div>
-      <div ref={containerRef} className="flex-1 p-1" />
+      {displayMode === 'text' ? (
+        <TextLog outputs={session?.outputs || []} maxHeight={600} />
+      ) : (
+        <div ref={containerRef} className="flex-1 p-1" />
+      )}
     </div>
   )
 }
