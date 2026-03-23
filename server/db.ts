@@ -721,4 +721,141 @@ export function getSyncStatus() {
   }
 }
 
+// --- Admin Users and Sessions (OAuth) ---
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS admin_users (
+    id TEXT PRIMARY KEY,
+    email TEXT UNIQUE NOT NULL,
+    role TEXT DEFAULT 'admin',
+    created_at INTEGER DEFAULT (unixepoch()),
+    last_login INTEGER
+  );
+
+  CREATE TABLE IF NOT EXISTS admin_sessions (
+    id TEXT PRIMARY KEY,
+    user_email TEXT NOT NULL,
+    session_token TEXT UNIQUE NOT NULL,
+    expires_at INTEGER NOT NULL,
+    created_at INTEGER DEFAULT (unixepoch()),
+    last_activity INTEGER DEFAULT (unixepoch()),
+    user_agent TEXT
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_admin_sessions_user_email ON admin_sessions(user_email);
+  CREATE INDEX IF NOT EXISTS idx_admin_sessions_expires_at ON admin_sessions(expires_at);
+`)
+
+// Admin User and Session interfaces
+export interface AdminUser {
+  id: string
+  email: string
+  role: string
+  createdAt: number
+  lastLogin: number | null
+}
+
+export interface AdminSession {
+  id: string
+  userEmail: string
+  sessionToken: string
+  expiresAt: number
+  createdAt: number
+  lastActivity: number
+  userAgent: string | null
+}
+
+// Admin User statements
+const createAdminUserStmt = db.prepare(`
+  INSERT INTO admin_users (id, email, role, created_at)
+  VALUES (?, ?, ?, ?)
+`)
+
+const getUserByEmailStmt = db.prepare(`
+  SELECT id, email, role, created_at as createdAt, last_login as lastLogin
+  FROM admin_users
+  WHERE email = ?
+`)
+
+const updateLastLoginStmt = db.prepare(`
+  UPDATE admin_users SET last_login = ? WHERE id = ?
+`)
+
+// Admin Session statements
+const createSessionStmt = db.prepare(`
+  INSERT INTO admin_sessions (id, user_email, session_token, expires_at, created_at, last_activity, user_agent)
+  VALUES (?, ?, ?, ?, ?, ?, ?)
+`)
+
+const getSessionByTokenStmt = db.prepare(`
+  SELECT id, user_email as userEmail, session_token as sessionToken, expires_at as expiresAt,
+         created_at as createdAt, last_activity as lastActivity, user_agent as userAgent
+  FROM admin_sessions
+  WHERE session_token = ?
+`)
+
+const deleteSessionStmt = db.prepare(`
+  DELETE FROM admin_sessions WHERE session_token = ?
+`)
+
+const cleanupExpiredSessionsStmt = db.prepare(`
+  DELETE FROM admin_sessions WHERE expires_at < ?
+`)
+
+// Admin User functions
+export function createAdminUser(id: string, email: string, role: string = 'admin'): AdminUser {
+  const now = Math.floor(Date.now() / 1000)
+  createAdminUserStmt.run(id, email, role, now)
+  return {
+    id,
+    email,
+    role,
+    createdAt: now,
+    lastLogin: null
+  }
+}
+
+export function getAdminUserByEmail(email: string): AdminUser | undefined {
+  return getUserByEmailStmt.get(email) as AdminUser | undefined
+}
+
+export function updateAdminUserLastLogin(userId: string): void {
+  const now = Math.floor(Date.now() / 1000)
+  updateLastLoginStmt.run(now, userId)
+}
+
+// Admin Session functions
+export function createSession(
+  userEmail: string,
+  sessionToken: string,
+  expiresAt: number,
+  userAgent?: string
+): AdminSession {
+  const now = Math.floor(Date.now() / 1000)
+  const id = `sess-${sessionToken}`
+  createSessionStmt.run(id, userEmail, sessionToken, expiresAt, now, now, userAgent ?? null)
+  return {
+    id,
+    userEmail,
+    sessionToken,
+    expiresAt,
+    createdAt: now,
+    lastActivity: now,
+    userAgent: userAgent ?? null
+  }
+}
+
+export function getSessionByToken(sessionToken: string): AdminSession | undefined {
+  return getSessionByTokenStmt.get(sessionToken) as AdminSession | undefined
+}
+
+export function deleteSession(sessionToken: string): boolean {
+  return deleteSessionStmt.run(sessionToken).changes > 0
+}
+
+export function cleanupExpiredSessions(): number {
+  const now = Math.floor(Date.now() / 1000)
+  return cleanupExpiredSessionsStmt.run(now).changes
+}
+
 export default db

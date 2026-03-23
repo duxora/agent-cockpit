@@ -87,4 +87,61 @@ export class AgentCockpitClient {
       throw new Error(`Failed to parse sync status response: ${(error as Error).message}`)
     }
   }
+
+  async registerSession(sessionId: string, name: string, cwd: string) {
+    const response = await this.fetchWithTimeout(
+      `${this.config.agent_cockpit_url}/api/hooks/session-start`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': this.getAuthHeader(),
+        },
+        body: JSON.stringify({ session_id: sessionId, name, cwd }),
+      },
+      5000
+    )
+    if (!response.ok) {
+      throw new Error(`session-start failed: ${response.status}`)
+    }
+    return response.json()
+  }
+
+  async sendHeartbeat(sessionId: string, status: 'active' | 'waiting' = 'active') {
+    const response = await this.fetchWithTimeout(
+      `${this.config.agent_cockpit_url}/api/hooks/heartbeat`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': this.getAuthHeader(),
+        },
+        body: JSON.stringify({ session_id: sessionId, status }),
+      },
+      5000
+    )
+    if (!response.ok) {
+      throw new Error(`heartbeat failed: ${response.status}`)
+    }
+    return response.json()
+  }
+
+  async endSession(sessionId: string) {
+    const response = await this.fetchWithTimeout(
+      `${this.config.agent_cockpit_url}/api/hooks/session-end`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': this.getAuthHeader(),
+        },
+        body: JSON.stringify({ session_id: sessionId }),
+      },
+      3000
+    )
+    if (!response.ok) {
+      throw new Error(`session-end failed: ${response.status}`)
+    }
+    return response.json()
+  }
 }

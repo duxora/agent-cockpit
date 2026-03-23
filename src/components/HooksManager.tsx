@@ -91,12 +91,14 @@ export function HooksManager() {
 
   const handleEdit = (hook: Hook) => {
     setEditingId(hook.id)
-    setFormData({
+    // Type cast the entire object to match formData type
+    const updatedFormData: typeof formData = {
       name: hook.name,
-      hook_type: hook.hook_type,
-      trigger: hook.trigger,
+      hook_type: hook.hook_type as 'pre-session',
+      trigger: hook.trigger as 'on-start',
       command: hook.command
-    })
+    }
+    setFormData(updatedFormData)
     setShowForm(true)
   }
 

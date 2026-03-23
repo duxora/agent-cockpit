@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { LogOut } from 'lucide-react'
 import RailwayStatus from './RailwayStatus'
 import MetricsCard from './MetricsCard'
 import VariablesManager from './VariablesManager'
@@ -6,16 +7,36 @@ import { AnalyticsDashboard } from './AnalyticsDashboard'
 import { HooksManager } from './HooksManager'
 import { SkillsManager } from './SkillsManager'
 import { GitHubStatus } from './GitHubStatus'
+import ClaudeTasksTab from './ClaudeTasksTab'
 import { Settings } from 'lucide-react'
 
 export default function AdminPanel() {
-  const [activeTab, setActiveTab] = useState<'railway' | 'settings' | 'analytics' | 'skills' | 'hooks' | 'github'>('railway')
+  const [activeTab, setActiveTab] = useState<'railway' | 'settings' | 'analytics' | 'skills' | 'hooks' | 'github' | 'claude-tasks'>('railway')
+
+  const handleLogout = async () => {
+    try {
+      await fetch('/api/auth/logout', { method: 'POST' })
+    } catch {
+      // Ignore errors, redirect anyway
+    }
+    window.location.href = '/login'
+  }
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex items-center gap-2 border-b border-gray-800 px-6 py-3">
-        <Settings className="h-5 w-5 text-gray-400" />
-        <h2 className="text-lg font-semibold text-gray-100">Administration</h2>
+      <div className="flex items-center justify-between border-b border-gray-800 px-6 py-3">
+        <div className="flex items-center gap-2">
+          <Settings className="h-5 w-5 text-gray-400" />
+          <h2 className="text-lg font-semibold text-gray-100">Administration</h2>
+        </div>
+        <button
+          onClick={handleLogout}
+          className="flex items-center gap-2 rounded-lg bg-red-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-700 transition-colors"
+          title="Logout"
+        >
+          <LogOut className="h-4 w-4" />
+          Logout
+        </button>
       </div>
 
       <div className="flex border-b border-gray-800">
@@ -70,6 +91,16 @@ export default function AdminPanel() {
           GitHub
         </button>
         <button
+          onClick={() => setActiveTab('claude-tasks')}
+          className={`flex-1 px-4 py-2 text-sm font-medium ${
+            activeTab === 'claude-tasks'
+              ? 'border-b-2 border-blue-500 text-blue-400'
+              : 'text-gray-500 hover:text-gray-300'
+          }`}
+        >
+          Claude Tasks
+        </button>
+        <button
           onClick={() => setActiveTab('settings')}
           className={`flex-1 px-4 py-2 text-sm font-medium ${
             activeTab === 'settings'
@@ -93,6 +124,7 @@ export default function AdminPanel() {
         {activeTab === 'skills' && <SkillsManager />}
         {activeTab === 'hooks' && <HooksManager />}
         {activeTab === 'github' && <GitHubStatus />}
+        {activeTab === 'claude-tasks' && <ClaudeTasksTab />}
         {activeTab === 'settings' && (
           <div className="text-gray-500 text-sm">Settings panel (existing content)</div>
         )}

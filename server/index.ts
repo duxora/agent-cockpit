@@ -5,10 +5,11 @@ import os from 'os'
 import { WebSocketServer, WebSocket } from 'ws'
 import path from 'path'
 import { fileURLToPath } from 'url'
+import crypto from 'crypto'
 import {
   listSessions,
   getSessionContent,
-  createSession,
+  createSession as createTmuxSession,
   killSession,
   sendKeys,
   sessionExists,
@@ -25,7 +26,9 @@ import {
   saveGitHubConfig, getGitHubConfig,
   createHook, listHooks, updateHook, deleteHook,
   listPendingTasks, updateTaskStatus, updateTaskResult, getSyncStatus,
+  createSession, getSessionByToken, deleteSession, cleanupExpiredSessions,
 } from './db.js'
+import { exchangeCodeForToken, verifyGoogleToken, generateSessionToken, generateOAuthState, getGoogleAuthUrl } from './oauth.js'
 import { initRailway, fetchDeployments, fetchMetrics, fetchEnvironmentVariables } from './railway.js'
 import { initGitHub, fetchPRs, fetchIssues, fetchBranches } from './github.js'
 import { listAvailableSkills, getSkillMetadata } from './skills.js'
@@ -40,30 +43,68 @@ initGitHub()
 
 app.use(express.json())
 
-// Basic auth (enabled when COCKPIT_PASSWORD is set)
-const COCKPIT_USER = process.env.COCKPIT_USER || 'admin'
-const COCKPIT_PASSWORD = process.env.COCKPIT_PASSWORD
+// --- OAuth State Store ---
+const oauthStates = new Map<string, number>()
 
-if (COCKPIT_PASSWORD) {
-  app.use((req, res, next) => {
-    if (req.path === '/health' || req.path === '/api/system/capabilities' || req.path.startsWith('/api/hooks')) return next()
+// Cleanup OAuth states every hour (remove states older than 1 hour)
+setInterval(() => {
+  const now = Date.now()
+  const oneHourAgo = now - 60 * 60 * 1000
+  for (const [state, timestamp] of oauthStates.entries()) {
+    if (timestamp < oneHourAgo) {
+      oauthStates.delete(state)
+    }
+  }
+}, 60 * 60 * 1000) // Every hour
 
-    const auth = req.headers.authorization
-    if (!auth || !auth.startsWith('Basic ')) {
-      res.setHeader('WWW-Authenticate', 'Basic realm="Agent Cockpit"')
-      res.status(401).send('Authentication required')
-      return
+// --- Cookie Parser Middleware ---
+app.use((req, res, next) => {
+  const cookieHeader = req.headers.cookie || ''
+  req.cookies = {}
+  cookieHeader.split(';').forEach(cookie => {
+    const [name, value] = cookie.trim().split('=')
+    if (name && value) {
+      req.cookies[name] = decodeURIComponent(value)
     }
-    const [user, pass] = Buffer.from(auth.slice(6), 'base64').toString().split(':')
-    if (user === COCKPIT_USER && pass === COCKPIT_PASSWORD) {
-      return next()
-    }
-    res.setHeader('WWW-Authenticate', 'Basic realm="Agent Cockpit"')
-    res.status(401).send('Invalid credentials')
   })
+  next()
+})
 
-  console.log('  Auth: Basic auth enabled')
+// Extend Express Request type
+declare global {
+  namespace Express {
+    interface Request {
+      cookies: Record<string, string>
+    }
+  }
 }
+
+// --- Session-Based Auth Middleware ---
+const publicRoutes = ['/health', '/api/system/capabilities', '/api/hooks', '/api/auth/google', '/api/auth/google/callback', '/api/auth/logout', '/api/share', '/api/channel']
+
+app.use((req, res, next) => {
+  // Skip auth for public routes
+  if (publicRoutes.some(route => req.path === route || req.path.startsWith(route + '/'))) {
+    return next()
+  }
+
+  // Get session token from cookie
+  const sessionToken = req.cookies.session_token
+  if (!sessionToken) {
+    return res.status(401).json({ error: 'Unauthorized' })
+  }
+
+  // Validate session exists and not expired
+  const session = getSessionByToken(sessionToken)
+  if (!session || session.expiresAt < Math.floor(Date.now() / 1000)) {
+    res.clearCookie('session_token')
+    return res.status(401).json({ error: 'Session expired' })
+  }
+
+  // Valid session - attach user info to request
+  (req as any).user = { email: session.userEmail, role: 'admin' }
+  next()
+})
 
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok' })
@@ -130,7 +171,7 @@ app.post('/api/sessions', (req, res) => {
     res.status(409).json({ error: `Session "${name}" already exists` })
     return
   }
-  const ok = createSession(name, command, cwd)
+  const ok = createTmuxSession(name, command, cwd)
   if (ok) {
     logEvent(name, 'created', JSON.stringify({ command, cwd }))
     res.json({ ok: true, name })
@@ -256,16 +297,7 @@ const PROJECT_ID = '6ffdb913-43d2-49aa-b68e-0e5b617a148d'
 const SERVICE_ID = '434d4687-cf40-4ba6-ad07-5918babd23cd'
 
 app.get('/api/admin/railway/deployments', async (req, res) => {
-  // Check auth
-  const auth = req.headers.authorization?.split(' ')[1]
-  const credentials = Buffer.from(auth || '', 'base64').toString()
-  const [user, pass] = credentials.split(':')
-
-  if (user !== COCKPIT_USER || pass !== COCKPIT_PASSWORD) {
-    res.status(401).json({ error: 'Unauthorized' })
-    return
-  }
-
+  // Auth is handled by session-based middleware above
   // Fetch from Railway API and cache
   const deployments = await fetchDeployments(PROJECT_ID, SERVICE_ID)
   for (const d of deployments) {
@@ -281,15 +313,7 @@ app.get('/api/admin/railway/deployments', async (req, res) => {
 })
 
 app.get('/api/admin/railway/metrics', async (req, res) => {
-  const auth = req.headers.authorization?.split(' ')[1]
-  const credentials = Buffer.from(auth || '', 'base64').toString()
-  const [user, pass] = credentials.split(':')
-
-  if (user !== COCKPIT_USER || pass !== COCKPIT_PASSWORD) {
-    res.status(401).json({ error: 'Unauthorized' })
-    return
-  }
-
+  // Auth is handled by session-based middleware above
   const metrics = await fetchMetrics(SERVICE_ID)
   if (Object.keys(metrics).length > 0) {
     logMetric(SERVICE_ID, metrics.cpuPercent, metrics.memoryMb, metrics.uptimeSeconds)
@@ -300,15 +324,7 @@ app.get('/api/admin/railway/metrics', async (req, res) => {
 })
 
 app.get('/api/admin/railway/variables', async (req, res) => {
-  const auth = req.headers.authorization?.split(' ')[1]
-  const credentials = Buffer.from(auth || '', 'base64').toString()
-  const [user, pass] = credentials.split(':')
-
-  if (user !== COCKPIT_USER || pass !== COCKPIT_PASSWORD) {
-    res.status(401).json({ error: 'Unauthorized' })
-    return
-  }
-
+  // Auth is handled by session-based middleware above
   const vars = await fetchEnvironmentVariables(SERVICE_ID)
   res.json(vars)
 })
@@ -389,16 +405,7 @@ app.get('/api/admin/github/branches', async (req, res) => {
 // --- Analytics Endpoints ---
 
 app.get('/api/admin/analytics/metrics', (req, res) => {
-  // Check auth
-  const auth = req.headers.authorization?.split(' ')[1]
-  const credentials = Buffer.from(auth || '', 'base64').toString()
-  const [user, pass] = credentials.split(':')
-
-  if (user !== COCKPIT_USER || pass !== COCKPIT_PASSWORD) {
-    res.status(401).json({ error: 'Unauthorized' })
-    return
-  }
-
+  // Auth is handled by session-based middleware above
   try {
     const days = parseInt(req.query.days as string) || 30
     const data = getAggregatedMetrics(days)
@@ -410,16 +417,7 @@ app.get('/api/admin/analytics/metrics', (req, res) => {
 })
 
 app.get('/api/admin/analytics/history', (req, res) => {
-  // Check auth
-  const auth = req.headers.authorization?.split(' ')[1]
-  const credentials = Buffer.from(auth || '', 'base64').toString()
-  const [user, pass] = credentials.split(':')
-
-  if (user !== COCKPIT_USER || pass !== COCKPIT_PASSWORD) {
-    res.status(401).json({ error: 'Unauthorized' })
-    return
-  }
-
+  // Auth is handled by session-based middleware above
   try {
     const sessionId = req.query.session_id as string
     if (!sessionId) {
@@ -682,17 +680,157 @@ app.get('/api/channel/sync/status', (req, res) => {
   try {
     const status = getSyncStatus()
 
+    // Find the most recently active channel session
+    const channelSessions = listManagedSessions().filter(
+      (s) => s.name === 'claude-code-channel'
+    )
+    const activeSession = channelSessions[0] ?? null
+    const sessionIdle = activeSession && activeSession.status === 'idle'
+
     res.json({
-      session_id: 'claude-session-' + Date.now(),
-      status: status.last_sync ? 'connected' : 'offline',
+      session_id: activeSession?.id ?? null,
+      status: activeSession
+        ? (sessionIdle ? 'idle' : 'connected')
+        : 'offline',
       last_sync: status.last_sync,
       pending_count: status.pending_count,
       completed_today: status.completed_today,
-      in_progress: status.in_progress
+      in_progress: status.in_progress,
+      active_channel_sessions: channelSessions.length,
     })
   } catch (error) {
     console.error('Failed to get sync status:', error)
     res.status(500).json({ error: 'Failed to get status' })
+  }
+})
+
+// --- Auth Endpoints ---
+
+// Task 3: GET /api/auth/google - OAuth flow initiation
+app.get('/api/auth/google', (req, res) => {
+  try {
+    // Validate required env vars are set
+    if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET || !process.env.GOOGLE_REDIRECT_URI) {
+      res.status(500).json({ error: 'OAuth not configured' })
+      return
+    }
+
+    // Generate CSRF state token
+    const state = generateOAuthState()
+    // Store state with timestamp for validation (expires after 1 hour)
+    oauthStates.set(state, Date.now())
+    // Get Google OAuth URL
+    const authUrl = getGoogleAuthUrl(state)
+    // Redirect to Google
+    res.redirect(authUrl)
+  } catch (error) {
+    console.error('Failed to initiate OAuth flow:', error)
+    res.status(500).json({ error: 'Failed to initiate OAuth flow' })
+  }
+})
+
+// Task 4: GET /api/auth/google/callback - OAuth callback handler
+app.get('/api/auth/google/callback', async (req, res) => {
+  try {
+    const { code, state } = req.query
+
+    // Validate code and state are present
+    if (!code || !state) {
+      res.status(400).json({ error: 'Missing code or state parameter' })
+      return
+    }
+
+    // Validate state (CSRF protection)
+    if (!oauthStates.has(state as string)) {
+      res.status(400).json({ error: 'Invalid or expired state parameter' })
+      return
+    }
+
+    // Delete state from map (cleanup)
+    oauthStates.delete(state as string)
+
+    // Exchange code for token
+    const idToken = await exchangeCodeForToken(code as string)
+    // Verify token and extract payload
+    const payload = await verifyGoogleToken(idToken)
+
+    // Check if email is authorized
+    const adminEmail = process.env.ADMIN_EMAIL || ''
+    if (payload.email.toLowerCase() !== adminEmail.toLowerCase()) {
+      res.status(401).json({ error: 'Email not authorized' })
+      return
+    }
+
+    // Generate session token
+    const sessionToken = generateSessionToken()
+    // Calculate expiration (30 days in seconds)
+    const expiresAt = Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60
+
+    // Create session in DB
+    createSession(payload.email, sessionToken, expiresAt, req.headers['user-agent'])
+
+    // Set HTTP-only cookie
+    const isProduction = process.env.NODE_ENV === 'production'
+    res.cookie('session_token', sessionToken, {
+      httpOnly: true,
+      secure: isProduction,
+      sameSite: 'strict',
+      maxAge: 30 * 24 * 60 * 60 * 1000 // 30 days in milliseconds
+    })
+
+    // Redirect to dashboard
+    res.redirect('/dashboard')
+  } catch (error) {
+    console.error('OAuth callback error:', error)
+    res.status(500).json({ error: 'Authentication failed' })
+  }
+})
+
+// Task 5: POST /api/auth/logout - Logout endpoint
+app.post('/api/auth/logout', (req, res) => {
+  try {
+    const sessionToken = req.cookies.session_token
+    if (sessionToken) {
+      deleteSession(sessionToken)
+    }
+    res.clearCookie('session_token')
+    res.json({ success: true })
+  } catch (error) {
+    console.error('Logout error:', error)
+    res.status(500).json({ error: 'Logout failed' })
+  }
+})
+
+// Task 5: GET /api/auth/me - Get current user info
+app.get('/api/auth/me', (req, res) => {
+  try {
+    const sessionToken = req.cookies.session_token
+    if (!sessionToken) {
+      res.status(401).json({ error: 'Unauthorized' })
+      return
+    }
+
+    const session = getSessionByToken(sessionToken)
+    if (!session) {
+      res.status(401).json({ error: 'Unauthorized' })
+      return
+    }
+
+    // Check if session has expired
+    const currentTime = Math.floor(Date.now() / 1000)
+    if (session.expiresAt < currentTime) {
+      res.clearCookie('session_token')
+      res.status(401).json({ error: 'Session expired' })
+      return
+    }
+
+    res.json({
+      email: session.userEmail,
+      role: 'admin'
+    })
+  } catch (error) {
+    console.error('Get user info error:', error)
+    res.status(500).json({ error: 'Failed to get user info' })
   }
 })
 
@@ -737,6 +875,9 @@ setInterval(broadcastSessions, 3000)
 // Cleanup stale managed sessions every 60 seconds
 setInterval(cleanupManagedSessions, 60000)
 
+// Cleanup expired admin sessions every hour
+setInterval(cleanupExpiredSessions, 60 * 60 * 1000)
+
 wss.on('connection', (ws) => {
   // Send initial session list on connect
   ws.send(JSON.stringify({ type: 'sessions', data: getMergedSessions().map((s) => ({
@@ -751,20 +892,28 @@ const termWss = new WebSocketServer({ noServer: true })
 const relayWss = new WebSocketServer({ noServer: true })
 
 server.on('upgrade', (request, socket, head) => {
-  // Check basic auth on WebSocket upgrade if enabled
-  if (COCKPIT_PASSWORD) {
-    const auth = request.headers.authorization
-    if (!auth || !auth.startsWith('Basic ')) {
-      socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n')
-      socket.destroy()
-      return
+  // Check session-based auth on WebSocket upgrade
+  const cookieHeader = request.headers.cookie || ''
+  const cookies: Record<string, string> = {}
+  cookieHeader.split(';').forEach(cookie => {
+    const [name, value] = cookie.trim().split('=')
+    if (name && value) {
+      cookies[name] = decodeURIComponent(value)
     }
-    const [user, pass] = Buffer.from(auth.slice(6), 'base64').toString().split(':')
-    if (user !== COCKPIT_USER || pass !== COCKPIT_PASSWORD) {
-      socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n')
-      socket.destroy()
-      return
-    }
+  })
+
+  const sessionToken = cookies.session_token
+  if (!sessionToken) {
+    socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n')
+    socket.destroy()
+    return
+  }
+
+  const session = getSessionByToken(sessionToken)
+  if (!session || session.expiresAt < Math.floor(Date.now() / 1000)) {
+    socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n')
+    socket.destroy()
+    return
   }
 
   const url = new URL(request.url || '', `http://localhost:${PORT}`)
@@ -918,6 +1067,18 @@ termWss.on('connection', (ws, request) => {
     clearInterval(pollInterval)
   })
 })
+
+// --- Session Cleanup on Startup ---
+const cleanupCount = cleanupExpiredSessions()
+console.log('Cleaned up', cleanupCount, 'expired sessions on startup')
+
+// Cleanup every hour
+setInterval(() => {
+  const deleted = cleanupExpiredSessions()
+  if (deleted > 0) {
+    console.log('Cleaned up', deleted, 'expired sessions')
+  }
+}, 3600000) // Every hour
 
 server.listen(PORT, '0.0.0.0', () => {
   const interfaces = Object.values(os.networkInterfaces())
