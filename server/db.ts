@@ -11,6 +11,18 @@ const db = new Database(DB_PATH)
 db.pragma('journal_mode = WAL')
 
 db.exec(`
+  CREATE TABLE IF NOT EXISTS sessions (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    cwd TEXT NOT NULL,
+    status TEXT DEFAULT 'active',
+    display_mode TEXT DEFAULT 'grid',
+    created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+    last_activity INTEGER
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_sessions_status ON sessions(status);
+
   CREATE TABLE IF NOT EXISTS session_events (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     session_name TEXT NOT NULL,
@@ -109,6 +121,21 @@ db.exec(`
 
   CREATE INDEX IF NOT EXISTS idx_hooks_hook_type ON hooks(hook_type);
   CREATE INDEX IF NOT EXISTS idx_hooks_enabled ON hooks(enabled);
+
+  CREATE TABLE IF NOT EXISTS session_shares (
+    id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    access_level TEXT CHECK(access_level IN ('read', 'interactive')),
+    password_hash TEXT NOT NULL,
+    created_by TEXT NOT NULL,
+    created_at INTEGER DEFAULT (unixepoch()),
+    expires_at INTEGER,
+    accessed_at INTEGER,
+    FOREIGN KEY(session_id) REFERENCES sessions(id) ON DELETE CASCADE
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_session_shares_session_id ON session_shares(session_id);
+  CREATE INDEX IF NOT EXISTS idx_session_shares_expires_at ON session_shares(expires_at);
 `)
 
 export interface SessionEvent {
@@ -505,6 +532,125 @@ export function updateHook(id: number, updates: Partial<Omit<Hook, 'id' | 'creat
 
 export function deleteHook(id: number): boolean {
   return deleteHookStmt.run(id).changes > 0
+}
+
+// --- Sessions ---
+
+export interface Session {
+  id: string
+  name: string
+  cwd: string
+  status: string
+  display_mode: string
+  created_at: number
+  last_activity: number | null
+}
+
+const getSessionStmt = db.prepare('SELECT * FROM sessions WHERE id = ?')
+
+const updateSessionDisplayModeStmt = db.prepare(
+  'UPDATE sessions SET display_mode = ? WHERE id = ?'
+)
+
+export function getSession(id: string): Session | undefined {
+  return getSessionStmt.get(id) as Session | undefined
+}
+
+export function updateSessionDisplayMode(id: string, displayMode: 'grid' | 'focus'): void {
+  updateSessionDisplayModeStmt.run(displayMode, id)
+}
+
+// --- Session Shares ---
+
+export interface SessionShare {
+  id: string
+  sessionId: string
+  accessLevel: 'read' | 'interactive'
+  passwordHash: string
+  createdBy: string
+  createdAt: number
+  expiresAt: number | null
+  accessedAt: number | null
+}
+
+const createShareStmt = db.prepare(`
+  INSERT INTO session_shares (id, session_id, access_level, password_hash, created_by, expires_at)
+  VALUES (?, ?, ?, ?, ?, ?)
+`)
+
+const getShareStmt = db.prepare('SELECT * FROM session_shares WHERE id = ?')
+
+const listSharesStmt = db.prepare('SELECT * FROM session_shares WHERE session_id = ? ORDER BY created_at DESC')
+
+const deleteShareStmt = db.prepare('DELETE FROM session_shares WHERE id = ?')
+
+const cleanupExpiredSharesStmt = db.prepare('DELETE FROM session_shares WHERE expires_at IS NOT NULL AND expires_at < ?')
+
+const updateShareAccessTimeStmt = db.prepare('UPDATE session_shares SET accessed_at = ? WHERE id = ?')
+
+export function createShare(
+  id: string,
+  sessionId: string,
+  accessLevel: 'read' | 'interactive',
+  passwordHash: string,
+  createdBy: string,
+  expiresAt?: number
+): SessionShare {
+  createShareStmt.run(id, sessionId, accessLevel, passwordHash, createdBy, expiresAt ?? null)
+  const share = getShareStmt.get(id) as any
+  return {
+    id: share.id,
+    sessionId: share.session_id,
+    accessLevel: share.access_level,
+    passwordHash: share.password_hash,
+    createdBy: share.created_by,
+    createdAt: share.created_at,
+    expiresAt: share.expires_at,
+    accessedAt: share.accessed_at
+  }
+}
+
+export function getShare(id: string): SessionShare | undefined {
+  const share = getShareStmt.get(id) as any
+  if (!share) return undefined
+  return {
+    id: share.id,
+    sessionId: share.session_id,
+    accessLevel: share.access_level,
+    passwordHash: share.password_hash,
+    createdBy: share.created_by,
+    createdAt: share.created_at,
+    expiresAt: share.expires_at,
+    accessedAt: share.accessed_at
+  }
+}
+
+export function listShares(sessionId: string): SessionShare[] {
+  const shares = listSharesStmt.all(sessionId) as any[]
+  return shares.map(share => ({
+    id: share.id,
+    sessionId: share.session_id,
+    accessLevel: share.access_level,
+    passwordHash: share.password_hash,
+    createdBy: share.created_by,
+    createdAt: share.created_at,
+    expiresAt: share.expires_at,
+    accessedAt: share.accessed_at
+  }))
+}
+
+export function deleteShare(id: string): boolean {
+  return deleteShareStmt.run(id).changes > 0
+}
+
+export function cleanupExpiredShares(): void {
+  const now = Math.floor(Date.now() / 1000)
+  cleanupExpiredSharesStmt.run(now)
+}
+
+export function updateShareAccessTime(id: string): void {
+  const now = Math.floor(Date.now() / 1000)
+  updateShareAccessTimeStmt.run(now, id)
 }
 
 // --- GitHub Config ---
