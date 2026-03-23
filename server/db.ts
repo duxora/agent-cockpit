@@ -16,7 +16,7 @@ db.exec(`
     name TEXT NOT NULL,
     cwd TEXT NOT NULL,
     status TEXT DEFAULT 'active',
-    display_mode TEXT DEFAULT 'grid',
+    display_mode TEXT DEFAULT 'terminal' CHECK(display_mode IN ('terminal', 'text')),
     created_at INTEGER NOT NULL DEFAULT (unixepoch()),
     last_activity INTEGER
   );
@@ -556,7 +556,7 @@ export function getSession(id: string): Session | undefined {
   return getSessionStmt.get(id) as Session | undefined
 }
 
-export function updateSessionDisplayMode(id: string, displayMode: 'grid' | 'focus'): void {
+export function updateSessionDisplayMode(id: string, displayMode: 'terminal' | 'text'): void {
   updateSessionDisplayModeStmt.run(displayMode, id)
 }
 
