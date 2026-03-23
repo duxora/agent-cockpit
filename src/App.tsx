@@ -6,11 +6,21 @@ import LocalSessionDetail from './components/LocalSessionDetail'
 import NewSessionModal from './components/NewSessionModal'
 import SettingsModal from './components/SettingsModal'
 import AdminPanel from './components/AdminPanel'
+import SharedSessionView from './components/SharedSessionView'
 import { useWebSocket } from './hooks/useWebSocket'
 import { useNotifications } from './hooks/useNotifications'
 import type { Session } from './types'
 
 export default function App() {
+  // Check if this is a shared view (URL is /share/...)
+  const isSharedView = window.location.pathname.startsWith('/share/')
+
+  if (isSharedView) {
+    // Extract shareId from URL path
+    const shareId = window.location.pathname.split('/')[2]
+    return <SharedSessionView key={shareId} />
+  }
+
   const [sessions, setSessions] = useState<Session[]>([])
   const [selectedSession, setSelectedSession] = useState<string | null>(null)
   const [showNewModal, setShowNewModal] = useState(false)
