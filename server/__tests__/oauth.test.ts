@@ -66,7 +66,7 @@ describe('Admin Sessions', () => {
   it('creates an admin session', () => {
     const now = Math.floor(Date.now() / 1000)
     const expiresAt = now + 86400 // 24 hours
-    const result = createSessionStmt.run(
+    const result = createSessionStmt.run([
       'sess-1',
       'admin@example.com',
       'token-abc123',
@@ -74,7 +74,7 @@ describe('Admin Sessions', () => {
       now,
       now,
       'Mozilla/5.0'
-    )
+    ])
     expect(result.changes).toBe(1)
 
     const session = getSessionByTokenStmt.get('token-abc123') as any
@@ -86,7 +86,7 @@ describe('Admin Sessions', () => {
 
   it('retrieves session by token', () => {
     const now = Math.floor(Date.now() / 1000)
-    createSessionStmt.run(
+    createSessionStmt.run([
       'sess-1',
       'admin@example.com',
       'token-xyz789',
@@ -94,7 +94,7 @@ describe('Admin Sessions', () => {
       now,
       now,
       'Chrome'
-    )
+    ])
 
     const session = getSessionByTokenStmt.get('token-xyz789') as any
     expect(session.id).toBe('sess-1')
@@ -108,7 +108,7 @@ describe('Admin Sessions', () => {
 
   it('deletes a session by token', () => {
     const now = Math.floor(Date.now() / 1000)
-    createSessionStmt.run(
+    createSessionStmt.run([
       'sess-1',
       'admin@example.com',
       'token-del',
@@ -116,9 +116,9 @@ describe('Admin Sessions', () => {
       now,
       now,
       null
-    )
+    ])
 
-    const result = deleteSessionStmt.run('token-del')
+    const result = deleteSessionStmt.run(['token-del'])
     expect(result.changes).toBe(1)
 
     const session = getSessionByTokenStmt.get('token-del')
@@ -129,7 +129,7 @@ describe('Admin Sessions', () => {
     const now = Math.floor(Date.now() / 1000)
 
     // Expired session
-    createSessionStmt.run(
+    createSessionStmt.run([
       'sess-1',
       'admin@example.com',
       'token-expired',
@@ -137,10 +137,10 @@ describe('Admin Sessions', () => {
       now - 2000,
       now - 1000,
       null
-    )
+    ])
 
     // Valid session
-    createSessionStmt.run(
+    createSessionStmt.run([
       'sess-2',
       'admin@example.com',
       'token-valid',
@@ -148,9 +148,9 @@ describe('Admin Sessions', () => {
       now,
       now,
       null
-    )
+    ])
 
-    const result = cleanupExpiredStmt.run(now)
+    const result = cleanupExpiredStmt.run([now])
     expect(result.changes).toBe(1) // Only expired session deleted
 
     const validSession = getSessionByTokenStmt.get('token-valid')
@@ -162,7 +162,7 @@ describe('Admin Sessions', () => {
 
   it('enforces unique session tokens', () => {
     const now = Math.floor(Date.now() / 1000)
-    createSessionStmt.run(
+    createSessionStmt.run([
       'sess-1',
       'admin@example.com',
       'token-unique',
@@ -170,11 +170,11 @@ describe('Admin Sessions', () => {
       now,
       now,
       null
-    )
+    ])
 
     // Try to insert duplicate token
     expect(() => {
-      createSessionStmt.run(
+      createSessionStmt.run([
         'sess-2',
         'admin@example.com',
         'token-unique', // Duplicate
@@ -182,14 +182,14 @@ describe('Admin Sessions', () => {
         now,
         now,
         null
-      )
+      ])
     }).toThrow()
   })
 
   it('stores user agent for session tracking', () => {
     const now = Math.floor(Date.now() / 1000)
     const userAgent = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)'
-    createSessionStmt.run(
+    createSessionStmt.run([
       'sess-1',
       'admin@example.com',
       'token-ua',
@@ -197,7 +197,7 @@ describe('Admin Sessions', () => {
       now,
       now,
       userAgent
-    )
+    ])
 
     const session = getSessionByTokenStmt.get('token-ua') as any
     expect(session.userAgent).toBe(userAgent)
@@ -232,7 +232,7 @@ describe('Admin Users', () => {
 
   it('creates an admin user', () => {
     const now = Math.floor(Date.now() / 1000)
-    const result = createUserStmt.run('user-1', 'admin@example.com', 'admin', now)
+    const result = createUserStmt.run(['user-1', 'admin@example.com', 'admin', now])
     expect(result.changes).toBe(1)
 
     const user = getUserByEmailStmt.get('admin@example.com') as any
@@ -243,10 +243,10 @@ describe('Admin Users', () => {
 
   it('enforces unique email addresses', () => {
     const now = Math.floor(Date.now() / 1000)
-    createUserStmt.run('user-1', 'admin@example.com', 'admin', now)
+    createUserStmt.run(['user-1', 'admin@example.com', 'admin', now])
 
     expect(() => {
-      createUserStmt.run('user-2', 'admin@example.com', 'admin', now)
+      createUserStmt.run(['user-2', 'admin@example.com', 'admin', now])
     }).toThrow()
   })
 
@@ -255,7 +255,7 @@ describe('Admin Users', () => {
     db.prepare(`
       INSERT INTO admin_users (id, email, created_at)
       VALUES (?, ?, ?)
-    `).run('user-1', 'default@example.com', now)
+    `).run(['user-1', 'default@example.com', now])
 
     const user = getUserByEmailStmt.get('default@example.com') as any
     expect(user.role).toBe('admin')
@@ -263,10 +263,10 @@ describe('Admin Users', () => {
 
   it('lists all users ordered by creation date', () => {
     const now = Math.floor(Date.now() / 1000)
-    createUserStmt.run('user-2', 'second@example.com', 'admin', now + 100)
-    createUserStmt.run('user-1', 'first@example.com', 'admin', now)
+    createUserStmt.run(['user-2', 'second@example.com', 'admin', now + 100])
+    createUserStmt.run(['user-1', 'first@example.com', 'admin', now])
 
-    const users = listUsersStmt.all() as any[]
+    const users = (listUsersStmt.all as any)() as any[]
     expect(users).toHaveLength(2)
     expect(users[0].email).toBe('second@example.com') // Most recent first
     expect(users[1].email).toBe('first@example.com')
