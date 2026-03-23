@@ -5,10 +5,11 @@ import os from 'os'
 import { WebSocketServer, WebSocket } from 'ws'
 import path from 'path'
 import { fileURLToPath } from 'url'
+import crypto from 'crypto'
 import {
   listSessions,
   getSessionContent,
-  createSession,
+  createSession as createTmuxSession,
   killSession,
   sendKeys,
   sessionExists,
@@ -25,7 +26,9 @@ import {
   saveGitHubConfig, getGitHubConfig,
   createHook, listHooks, updateHook, deleteHook,
   listPendingTasks, updateTaskStatus, updateTaskResult, getSyncStatus,
+  createSession, getSessionByToken, deleteSession, cleanupExpiredSessions,
 } from './db.js'
+import { exchangeCodeForToken, verifyGoogleToken, generateSessionToken, generateOAuthState, getGoogleAuthUrl } from './oauth.js'
 import { initRailway, fetchDeployments, fetchMetrics, fetchEnvironmentVariables } from './railway.js'
 import { initGitHub, fetchPRs, fetchIssues, fetchBranches } from './github.js'
 import { listAvailableSkills, getSkillMetadata } from './skills.js'
@@ -39,6 +42,42 @@ initRailway()
 initGitHub()
 
 app.use(express.json())
+
+// --- OAuth State Store ---
+const oauthStates = new Map<string, number>()
+
+// Cleanup OAuth states every hour (remove states older than 1 hour)
+setInterval(() => {
+  const now = Date.now()
+  const oneHourAgo = now - 60 * 60 * 1000
+  for (const [state, timestamp] of oauthStates.entries()) {
+    if (timestamp < oneHourAgo) {
+      oauthStates.delete(state)
+    }
+  }
+}, 60 * 60 * 1000) // Every hour
+
+// --- Cookie Parser Middleware ---
+app.use((req, res, next) => {
+  const cookieHeader = req.headers.cookie || ''
+  req.cookies = {}
+  cookieHeader.split(';').forEach(cookie => {
+    const [name, value] = cookie.trim().split('=')
+    if (name && value) {
+      req.cookies[name] = decodeURIComponent(value)
+    }
+  })
+  next()
+})
+
+// Extend Express Request type
+declare global {
+  namespace Express {
+    interface Request {
+      cookies: Record<string, string>
+    }
+  }
+}
 
 // Basic auth (enabled when COCKPIT_PASSWORD is set)
 const COCKPIT_USER = process.env.COCKPIT_USER || 'admin'
@@ -130,7 +169,7 @@ app.post('/api/sessions', (req, res) => {
     res.status(409).json({ error: `Session "${name}" already exists` })
     return
   }
-  const ok = createSession(name, command, cwd)
+  const ok = createTmuxSession(name, command, cwd)
   if (ok) {
     logEvent(name, 'created', JSON.stringify({ command, cwd }))
     res.json({ ok: true, name })
@@ -706,6 +745,136 @@ app.get('/api/channel/sync/status', (req, res) => {
   }
 })
 
+// --- Auth Endpoints ---
+
+// Task 3: GET /api/auth/google - OAuth flow initiation
+app.get('/api/auth/google', (req, res) => {
+  try {
+    // Validate required env vars are set
+    if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET || !process.env.GOOGLE_REDIRECT_URI) {
+      res.status(500).json({ error: 'OAuth not configured' })
+      return
+    }
+
+    // Generate CSRF state token
+    const state = generateOAuthState()
+    // Store state with timestamp for validation (expires after 1 hour)
+    oauthStates.set(state, Date.now())
+    // Get Google OAuth URL
+    const authUrl = getGoogleAuthUrl(state)
+    // Redirect to Google
+    res.redirect(authUrl)
+  } catch (error) {
+    console.error('Failed to initiate OAuth flow:', error)
+    res.status(500).json({ error: 'Failed to initiate OAuth flow' })
+  }
+})
+
+// Task 4: GET /api/auth/google/callback - OAuth callback handler
+app.get('/api/auth/google/callback', async (req, res) => {
+  try {
+    const { code, state } = req.query
+
+    // Validate code and state are present
+    if (!code || !state) {
+      res.status(400).json({ error: 'Missing code or state parameter' })
+      return
+    }
+
+    // Validate state (CSRF protection)
+    if (!oauthStates.has(state as string)) {
+      res.status(400).json({ error: 'Invalid or expired state parameter' })
+      return
+    }
+
+    // Delete state from map (cleanup)
+    oauthStates.delete(state as string)
+
+    // Exchange code for token
+    const idToken = await exchangeCodeForToken(code as string)
+    // Verify token and extract payload
+    const payload = await verifyGoogleToken(idToken)
+
+    // Check if email is authorized
+    const adminEmail = process.env.ADMIN_EMAIL || ''
+    if (payload.email.toLowerCase() !== adminEmail.toLowerCase()) {
+      res.status(401).json({ error: 'Email not authorized' })
+      return
+    }
+
+    // Generate session token
+    const sessionToken = generateSessionToken()
+    // Calculate expiration (30 days in seconds)
+    const expiresAt = Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60
+
+    // Create session in DB
+    createSession(payload.email, sessionToken, expiresAt, req.headers['user-agent'])
+
+    // Set HTTP-only cookie
+    const isProduction = process.env.NODE_ENV === 'production'
+    res.cookie('session_token', sessionToken, {
+      httpOnly: true,
+      secure: isProduction,
+      sameSite: 'strict',
+      maxAge: 30 * 24 * 60 * 60 * 1000 // 30 days in milliseconds
+    })
+
+    // Redirect to dashboard
+    res.redirect('/dashboard')
+  } catch (error) {
+    console.error('OAuth callback error:', error)
+    res.status(500).json({ error: 'Authentication failed' })
+  }
+})
+
+// Task 5: POST /api/auth/logout - Logout endpoint
+app.post('/api/auth/logout', (req, res) => {
+  try {
+    const sessionToken = req.cookies.session_token
+    if (sessionToken) {
+      deleteSession(sessionToken)
+    }
+    res.clearCookie('session_token')
+    res.json({ success: true })
+  } catch (error) {
+    console.error('Logout error:', error)
+    res.status(500).json({ error: 'Logout failed' })
+  }
+})
+
+// Task 5: GET /api/auth/me - Get current user info
+app.get('/api/auth/me', (req, res) => {
+  try {
+    const sessionToken = req.cookies.session_token
+    if (!sessionToken) {
+      res.status(401).json({ error: 'Unauthorized' })
+      return
+    }
+
+    const session = getSessionByToken(sessionToken)
+    if (!session) {
+      res.status(401).json({ error: 'Unauthorized' })
+      return
+    }
+
+    // Check if session has expired
+    const currentTime = Math.floor(Date.now() / 1000)
+    if (session.expiresAt < currentTime) {
+      res.clearCookie('session_token')
+      res.status(401).json({ error: 'Session expired' })
+      return
+    }
+
+    res.json({
+      email: session.userEmail,
+      role: 'admin'
+    })
+  } catch (error) {
+    console.error('Get user info error:', error)
+    res.status(500).json({ error: 'Failed to get user info' })
+  }
+})
+
 // SPA fallback
 app.get('*', (_req, res) => {
   res.sendFile(path.join(distPath, 'index.html'))
@@ -746,6 +915,9 @@ setInterval(broadcastSessions, 3000)
 
 // Cleanup stale managed sessions every 60 seconds
 setInterval(cleanupManagedSessions, 60000)
+
+// Cleanup expired admin sessions every hour
+setInterval(cleanupExpiredSessions, 60 * 60 * 1000)
 
 wss.on('connection', (ws) => {
   // Send initial session list on connect
