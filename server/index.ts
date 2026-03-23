@@ -5,6 +5,8 @@ import os from 'os'
 import { WebSocketServer, WebSocket } from 'ws'
 import path from 'path'
 import { fileURLToPath } from 'url'
+import bcrypt from 'bcrypt'
+import { v4 as uuidv4 } from 'uuid'
 import {
   listSessions,
   getSessionContent,
@@ -25,6 +27,7 @@ import {
   saveGitHubConfig, getGitHubConfig,
   createHook, listHooks, updateHook, deleteHook,
   listPendingTasks, updateTaskStatus, updateTaskResult, getSyncStatus,
+  createShare, getShare, listShares, deleteShare, updateShareAccessTime, getSession, updateSessionDisplayMode,
 } from './db.js'
 import { initRailway, fetchDeployments, fetchMetrics, fetchEnvironmentVariables } from './railway.js'
 import { initGitHub, fetchPRs, fetchIssues, fetchBranches } from './github.js'
@@ -44,9 +47,28 @@ app.use(express.json())
 const COCKPIT_USER = process.env.COCKPIT_USER || 'admin'
 const COCKPIT_PASSWORD = process.env.COCKPIT_PASSWORD
 
+// --- Auth Helpers ---
+
+async function hashPassword(password: string): Promise<string> {
+  return bcrypt.hash(password, 10)
+}
+
+async function verifyPassword(password: string, hash: string): Promise<boolean> {
+  return bcrypt.compare(password, hash)
+}
+
+function generateShareToken(): string {
+  return uuidv4()
+}
+
+function generateShareUrl(shareId: string, token: string): string {
+  const baseUrl = process.env.COCKPIT_BASE_URL || 'http://localhost:5173'
+  return `${baseUrl}/share/${shareId}?token=${token}`
+}
+
 if (COCKPIT_PASSWORD) {
   app.use((req, res, next) => {
-    if (req.path === '/health' || req.path === '/api/system/capabilities' || req.path.startsWith('/api/hooks')) return next()
+    if (req.path === '/health' || req.path === '/api/system/capabilities' || req.path.startsWith('/api/hooks') || req.path.startsWith('/api/share')) return next()
 
     const auth = req.headers.authorization
     if (!auth || !auth.startsWith('Basic ')) {
@@ -535,6 +557,180 @@ app.get('/api/skills/:name', async (req, res) => {
     console.error('Failed to get skill metadata:', error)
     res.status(500).json({ error: 'Failed to get skill metadata' })
   }
+})
+
+// --- Session Sharing ---
+
+app.post('/api/sessions/:id/shares', async (req, res) => {
+  const { id } = req.params
+  const { password, accessLevel } = req.body
+
+  // Validate input
+  if (!password || !accessLevel) {
+    return res.status(400).json({ error: 'password and accessLevel required' })
+  }
+  if (!['read', 'interactive'].includes(accessLevel)) {
+    return res.status(400).json({ error: 'accessLevel must be read or interactive' })
+  }
+
+  // Check session exists
+  const session = getSession(id)
+  if (!session) {
+    return res.status(404).json({ error: 'Session not found' })
+  }
+
+  try {
+    const shareId = `share_${uuidv4()}`
+    const token = generateShareToken()
+    const passwordHash = await hashPassword(password)
+
+    const share = createShare(shareId, id, accessLevel, passwordHash, 'system')
+
+    const url = generateShareUrl(shareId, token)
+    res.json({ shareId, token, url })
+  } catch (error) {
+    console.error('Failed to create share:', error)
+    res.status(500).json({ error: 'Failed to create share' })
+  }
+})
+
+app.get('/api/sessions/:id/shares', (req, res) => {
+  const { id } = req.params
+
+  const session = getSession(id)
+  if (!session) {
+    return res.status(404).json({ error: 'Session not found' })
+  }
+
+  const shares = listShares(id)
+  // Filter out password hashes in response
+  const safeShares = shares.map(s => ({
+    id: s.id,
+    accessLevel: s.accessLevel,
+    createdAt: s.createdAt,
+    createdBy: s.createdBy,
+    accessedAt: s.accessedAt
+  }))
+
+  res.json({ shares: safeShares })
+})
+
+app.delete('/api/sessions/:id/shares/:shareId', (req, res) => {
+  const { id, shareId } = req.params
+
+  const session = getSession(id)
+  if (!session) {
+    return res.status(404).json({ error: 'Session not found' })
+  }
+
+  const share = getShare(shareId)
+  if (!share) {
+    return res.status(404).json({ error: 'Share not found' })
+  }
+
+  const deleted = deleteShare(shareId)
+  if (!deleted) {
+    return res.status(500).json({ error: 'Failed to delete share' })
+  }
+
+  res.status(204).send()
+})
+
+app.get('/api/share/:shareId', (req, res) => {
+  const { shareId } = req.params
+  const { token } = req.query
+
+  if (!token) {
+    return res.status(400).json({ error: 'token required' })
+  }
+
+  const share = getShare(shareId)
+  if (!share || share.id !== shareId) {
+    return res.status(403).json({ error: 'Invalid token' })
+  }
+
+  // Check if expired
+  if (share.expiresAt && share.expiresAt < Math.floor(Date.now() / 1000)) {
+    return res.status(403).json({ error: 'Link expired' })
+  }
+
+  // Update access time
+  updateShareAccessTime(shareId)
+
+  // Get session status
+  const session = getSession(share.sessionId)
+  const sessionActive = session?.status === 'active'
+
+  res.json({
+    sessionId: share.sessionId,
+    accessLevel: share.accessLevel,
+    requiresPassword: share.accessLevel === 'interactive',
+    sessionActive
+  })
+})
+
+app.post('/api/share/:shareId/prompt', async (req, res) => {
+  const { shareId } = req.params
+  const { token, password, prompt } = req.body
+
+  if (!token || !password || !prompt) {
+    return res.status(400).json({ error: 'token, password, and prompt required' })
+  }
+
+  const share = getShare(shareId)
+  if (!share || share.id !== shareId) {
+    return res.status(403).json({ error: 'Invalid token' })
+  }
+
+  // Check if expired
+  if (share.expiresAt && share.expiresAt < Math.floor(Date.now() / 1000)) {
+    return res.status(410).json({ error: 'Share expired' })
+  }
+
+  // Check access level
+  if (share.accessLevel !== 'interactive') {
+    return res.status(403).json({ error: 'Read-only share cannot accept prompts' })
+  }
+
+  // Verify password
+  try {
+    const passwordMatch = await verifyPassword(password, share.passwordHash)
+    if (!passwordMatch) {
+      return res.status(403).json({ error: 'Invalid password' })
+    }
+  } catch (error) {
+    console.error('Password verification failed:', error)
+    return res.status(403).json({ error: 'Invalid password' })
+  }
+
+  try {
+    // Submit prompt to session
+    sendKeys(share.sessionId, prompt)
+    res.json({ success: true })
+  } catch (error) {
+    console.error('Failed to submit prompt:', error)
+    res.status(500).json({ error: 'Failed to submit prompt' })
+  }
+})
+
+app.patch('/api/sessions/:id', (req, res) => {
+  const { id } = req.params
+  const { displayMode } = req.body
+
+  const session = getSession(id)
+  if (!session) {
+    return res.status(404).json({ error: 'Session not found' })
+  }
+
+  if (displayMode && !['terminal', 'text'].includes(displayMode)) {
+    return res.status(400).json({ error: 'displayMode must be terminal or text' })
+  }
+
+  if (displayMode) {
+    updateSessionDisplayMode(id, displayMode)
+  }
+
+  res.json({ id, displayMode })
 })
 
 // --- Open in Terminal (local only) ---
