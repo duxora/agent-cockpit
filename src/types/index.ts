@@ -1,5 +1,6 @@
 export interface Session {
   name: string
+  id?: string
   created: number
   attached: boolean
   lastActivity: number
@@ -9,6 +10,7 @@ export interface Session {
   source: 'tmux' | 'local'
   sessionId?: string
   relayConnected?: boolean
+  display_mode?: 'terminal' | 'text'
 }
 
 export interface SessionGroup {

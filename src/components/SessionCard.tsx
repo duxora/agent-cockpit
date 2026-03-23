@@ -1,5 +1,7 @@
-import { Monitor, Clock, Trash2, X, Terminal, AlertTriangle, Circle, Radio } from 'lucide-react'
+import { Monitor, Clock, Trash2, X, Terminal, AlertTriangle, Circle, Radio, Share2, Type } from 'lucide-react'
+import { useState } from 'react'
 import type { Session } from '../types'
+import SessionShareModal from './SessionShareModal'
 
 const STATUS_CONFIG: Record<string, { color: string; bg: string; label: string; pulse: boolean }> = {
   active: { color: 'text-green-400', bg: 'bg-green-500/20', label: 'Active', pulse: false },
@@ -32,6 +34,24 @@ interface Props {
 export default function SessionCard({ session, isSelected, onSelect, onKill, onSendKeys }: Props) {
   const cfg = STATUS_CONFIG[session.status] || STATUS_CONFIG.dead
   const isLocal = session.source === 'local'
+  const [showShareModal, setShowShareModal] = useState(false)
+  const [displayMode, setDisplayMode] = useState<'terminal' | 'text'>(session?.display_mode || 'terminal')
+
+  const handleToggleTextMode = async () => {
+    const newMode = displayMode === 'terminal' ? 'text' : 'terminal'
+    setDisplayMode(newMode)
+
+    try {
+      await fetch(`/api/sessions/${session.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ displayMode: newMode })
+      })
+    } catch (error) {
+      console.error('Failed to update display mode:', error)
+      setDisplayMode(displayMode)
+    }
+  }
 
   return (
     <div
@@ -62,6 +82,26 @@ export default function SessionCard({ session, isSelected, onSelect, onKill, onS
               {session.relayConnected ? 'Relay' : 'Local'}
             </span>
           )}
+          <button
+            onClick={(e) => {
+              e.stopPropagation()
+              setShowShareModal(true)
+            }}
+            className="rounded p-1 text-gray-500 hover:bg-green-500/20 hover:text-green-400"
+            title="Create share link"
+          >
+            <Share2 className="h-3.5 w-3.5" />
+          </button>
+          <button
+            onClick={(e) => {
+              e.stopPropagation()
+              handleToggleTextMode()
+            }}
+            className="rounded p-1 text-gray-500 hover:bg-blue-500/20 hover:text-blue-400"
+            title={`Switch to ${displayMode === 'terminal' ? 'text' : 'terminal'} mode`}
+          >
+            <Type className="h-3.5 w-3.5" />
+          </button>
           <button
             onClick={(e) => {
               e.stopPropagation()
@@ -126,6 +166,12 @@ export default function SessionCard({ session, isSelected, onSelect, onKill, onS
           )}
         </div>
       )}
+
+      <SessionShareModal
+        sessionId={session.id || session.name}
+        isOpen={showShareModal}
+        onClose={() => setShowShareModal(false)}
+      />
     </div>
   )
 }
