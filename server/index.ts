@@ -79,30 +79,32 @@ declare global {
   }
 }
 
-// Basic auth (enabled when COCKPIT_PASSWORD is set)
-const COCKPIT_USER = process.env.COCKPIT_USER || 'admin'
-const COCKPIT_PASSWORD = process.env.COCKPIT_PASSWORD
+// --- Session-Based Auth Middleware ---
+const publicRoutes = ['/health', '/api/system/capabilities', '/api/hooks', '/api/auth/google', '/api/auth/google/callback', '/api/auth/logout', '/api/share', '/api/channel']
 
-if (COCKPIT_PASSWORD) {
-  app.use((req, res, next) => {
-    if (req.path === '/health' || req.path === '/api/system/capabilities' || req.path.startsWith('/api/hooks')) return next()
+app.use((req, res, next) => {
+  // Skip auth for public routes
+  if (publicRoutes.some(route => req.path === route || req.path.startsWith(route + '/'))) {
+    return next()
+  }
 
-    const auth = req.headers.authorization
-    if (!auth || !auth.startsWith('Basic ')) {
-      res.setHeader('WWW-Authenticate', 'Basic realm="Agent Cockpit"')
-      res.status(401).send('Authentication required')
-      return
-    }
-    const [user, pass] = Buffer.from(auth.slice(6), 'base64').toString().split(':')
-    if (user === COCKPIT_USER && pass === COCKPIT_PASSWORD) {
-      return next()
-    }
-    res.setHeader('WWW-Authenticate', 'Basic realm="Agent Cockpit"')
-    res.status(401).send('Invalid credentials')
-  })
+  // Get session token from cookie
+  const sessionToken = req.cookies.session_token
+  if (!sessionToken) {
+    return res.status(401).json({ error: 'Unauthorized' })
+  }
 
-  console.log('  Auth: Basic auth enabled')
-}
+  // Validate session exists and not expired
+  const session = getSessionByToken(sessionToken)
+  if (!session || session.expiresAt < Math.floor(Date.now() / 1000)) {
+    res.clearCookie('session_token')
+    return res.status(401).json({ error: 'Session expired' })
+  }
+
+  // Valid session - attach user info to request
+  (req as any).user = { email: session.userEmail, role: 'admin' }
+  next()
+})
 
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok' })
@@ -295,16 +297,7 @@ const PROJECT_ID = '6ffdb913-43d2-49aa-b68e-0e5b617a148d'
 const SERVICE_ID = '434d4687-cf40-4ba6-ad07-5918babd23cd'
 
 app.get('/api/admin/railway/deployments', async (req, res) => {
-  // Check auth
-  const auth = req.headers.authorization?.split(' ')[1]
-  const credentials = Buffer.from(auth || '', 'base64').toString()
-  const [user, pass] = credentials.split(':')
-
-  if (user !== COCKPIT_USER || pass !== COCKPIT_PASSWORD) {
-    res.status(401).json({ error: 'Unauthorized' })
-    return
-  }
-
+  // Auth is handled by session-based middleware above
   // Fetch from Railway API and cache
   const deployments = await fetchDeployments(PROJECT_ID, SERVICE_ID)
   for (const d of deployments) {
@@ -320,15 +313,7 @@ app.get('/api/admin/railway/deployments', async (req, res) => {
 })
 
 app.get('/api/admin/railway/metrics', async (req, res) => {
-  const auth = req.headers.authorization?.split(' ')[1]
-  const credentials = Buffer.from(auth || '', 'base64').toString()
-  const [user, pass] = credentials.split(':')
-
-  if (user !== COCKPIT_USER || pass !== COCKPIT_PASSWORD) {
-    res.status(401).json({ error: 'Unauthorized' })
-    return
-  }
-
+  // Auth is handled by session-based middleware above
   const metrics = await fetchMetrics(SERVICE_ID)
   if (Object.keys(metrics).length > 0) {
     logMetric(SERVICE_ID, metrics.cpuPercent, metrics.memoryMb, metrics.uptimeSeconds)
@@ -339,15 +324,7 @@ app.get('/api/admin/railway/metrics', async (req, res) => {
 })
 
 app.get('/api/admin/railway/variables', async (req, res) => {
-  const auth = req.headers.authorization?.split(' ')[1]
-  const credentials = Buffer.from(auth || '', 'base64').toString()
-  const [user, pass] = credentials.split(':')
-
-  if (user !== COCKPIT_USER || pass !== COCKPIT_PASSWORD) {
-    res.status(401).json({ error: 'Unauthorized' })
-    return
-  }
-
+  // Auth is handled by session-based middleware above
   const vars = await fetchEnvironmentVariables(SERVICE_ID)
   res.json(vars)
 })
@@ -428,16 +405,7 @@ app.get('/api/admin/github/branches', async (req, res) => {
 // --- Analytics Endpoints ---
 
 app.get('/api/admin/analytics/metrics', (req, res) => {
-  // Check auth
-  const auth = req.headers.authorization?.split(' ')[1]
-  const credentials = Buffer.from(auth || '', 'base64').toString()
-  const [user, pass] = credentials.split(':')
-
-  if (user !== COCKPIT_USER || pass !== COCKPIT_PASSWORD) {
-    res.status(401).json({ error: 'Unauthorized' })
-    return
-  }
-
+  // Auth is handled by session-based middleware above
   try {
     const days = parseInt(req.query.days as string) || 30
     const data = getAggregatedMetrics(days)
@@ -449,16 +417,7 @@ app.get('/api/admin/analytics/metrics', (req, res) => {
 })
 
 app.get('/api/admin/analytics/history', (req, res) => {
-  // Check auth
-  const auth = req.headers.authorization?.split(' ')[1]
-  const credentials = Buffer.from(auth || '', 'base64').toString()
-  const [user, pass] = credentials.split(':')
-
-  if (user !== COCKPIT_USER || pass !== COCKPIT_PASSWORD) {
-    res.status(401).json({ error: 'Unauthorized' })
-    return
-  }
-
+  // Auth is handled by session-based middleware above
   try {
     const sessionId = req.query.session_id as string
     if (!sessionId) {
@@ -933,20 +892,28 @@ const termWss = new WebSocketServer({ noServer: true })
 const relayWss = new WebSocketServer({ noServer: true })
 
 server.on('upgrade', (request, socket, head) => {
-  // Check basic auth on WebSocket upgrade if enabled
-  if (COCKPIT_PASSWORD) {
-    const auth = request.headers.authorization
-    if (!auth || !auth.startsWith('Basic ')) {
-      socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n')
-      socket.destroy()
-      return
+  // Check session-based auth on WebSocket upgrade
+  const cookieHeader = request.headers.cookie || ''
+  const cookies: Record<string, string> = {}
+  cookieHeader.split(';').forEach(cookie => {
+    const [name, value] = cookie.trim().split('=')
+    if (name && value) {
+      cookies[name] = decodeURIComponent(value)
     }
-    const [user, pass] = Buffer.from(auth.slice(6), 'base64').toString().split(':')
-    if (user !== COCKPIT_USER || pass !== COCKPIT_PASSWORD) {
-      socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n')
-      socket.destroy()
-      return
-    }
+  })
+
+  const sessionToken = cookies.session_token
+  if (!sessionToken) {
+    socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n')
+    socket.destroy()
+    return
+  }
+
+  const session = getSessionByToken(sessionToken)
+  if (!session || session.expiresAt < Math.floor(Date.now() / 1000)) {
+    socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n')
+    socket.destroy()
+    return
   }
 
   const url = new URL(request.url || '', `http://localhost:${PORT}`)
@@ -1100,6 +1067,18 @@ termWss.on('connection', (ws, request) => {
     clearInterval(pollInterval)
   })
 })
+
+// --- Session Cleanup on Startup ---
+const cleanupCount = cleanupExpiredSessions()
+console.log('Cleaned up', cleanupCount, 'expired sessions on startup')
+
+// Cleanup every hour
+setInterval(() => {
+  const deleted = cleanupExpiredSessions()
+  if (deleted > 0) {
+    console.log('Cleaned up', deleted, 'expired sessions')
+  }
+}, 3600000) // Every hour
 
 server.listen(PORT, '0.0.0.0', () => {
   const interfaces = Object.values(os.networkInterfaces())
