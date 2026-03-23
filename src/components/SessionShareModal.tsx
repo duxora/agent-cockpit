@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { X, Copy, Trash2 } from 'lucide-react'
 
 interface SessionShareModalProps {
@@ -18,10 +18,31 @@ interface Share {
 export default function SessionShareModal({ sessionId, isOpen, onClose }: SessionShareModalProps) {
   const [password, setPassword] = useState('')
   const [accessLevel, setAccessLevel] = useState<'read' | 'interactive'>('read')
-  const [shares, setShares] = useState<Share[]>([])
+  const [shares, setShares] = useState<Share[] | undefined>()
   const [shareUrl, setShareUrl] = useState<string>('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string>('')
+
+  const loadShares = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/sessions/${sessionId}/shares`)
+      if (res.ok) {
+        const data = await res.json()
+        setShares(data.shares || [])
+      } else {
+        setShares([])
+      }
+    } catch (err) {
+      console.error('Failed to load shares:', err)
+      setShares([])
+    }
+  }, [sessionId])
+
+  useEffect(() => {
+    if (isOpen) {
+      loadShares()
+    }
+  }, [isOpen, loadShares])
 
   if (!isOpen) return null
 
@@ -56,18 +77,6 @@ export default function SessionShareModal({ sessionId, isOpen, onClose }: Sessio
       setError('Error creating share')
     } finally {
       setLoading(false)
-    }
-  }
-
-  const loadShares = async () => {
-    try {
-      const res = await fetch(`/api/sessions/${sessionId}/shares`)
-      if (res.ok) {
-        const data = await res.json()
-        setShares(data.shares)
-      }
-    } catch (err) {
-      console.error('Failed to load shares:', err)
     }
   }
 
@@ -180,7 +189,7 @@ export default function SessionShareModal({ sessionId, isOpen, onClose }: Sessio
 
         <div className="mt-6 border-t border-gray-700 pt-4">
           <h3 className="text-sm font-semibold mb-2">Active Shares</h3>
-          {shares.length === 0 ? (
+          {!shares || shares.length === 0 ? (
             <p className="text-gray-400 text-sm">No active shares</p>
           ) : (
             <div className="space-y-2">

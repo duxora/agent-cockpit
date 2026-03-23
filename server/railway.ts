@@ -1,7 +1,7 @@
 import fs from 'fs'
 import path from 'path'
 
-let RAILWAY_TOKEN: string
+let RAILWAY_TOKEN: string = ''
 
 function initRailway() {
   // Try env var first

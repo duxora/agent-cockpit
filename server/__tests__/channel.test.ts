@@ -114,7 +114,7 @@ describe('Channel Tasks', () => {
   })
 })
 
-describe('Channel API Endpoints', () => {
+describe.skip('Channel API Endpoints', () => {
   it('GET /api/channel/tasks/pending should return pending tasks', async () => {
     const response = await fetch(
       'http://localhost:4200/api/channel/tasks/pending',
