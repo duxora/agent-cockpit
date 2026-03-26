@@ -439,4 +439,91 @@ export function getGitHubConfig(): GitHubConfig | null {
   return getGithubConfigStmt.get() as GitHubConfig | null
 }
 
+// --- Auth Tables ---
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS admin_user (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    username TEXT UNIQUE NOT NULL,
+    password_hash TEXT NOT NULL,
+    totp_secret TEXT,
+    totp_enabled INTEGER DEFAULT 0,
+    created_at TEXT DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS admin_sessions (
+    token TEXT PRIMARY KEY,
+    user_id INTEGER NOT NULL,
+    expires_at TEXT NOT NULL,
+    user_agent TEXT,
+    created_at TEXT DEFAULT (datetime('now')),
+    FOREIGN KEY (user_id) REFERENCES admin_user(id)
+  );
+`)
+
+export interface AdminUser {
+  id: number
+  username: string
+  password_hash: string
+  totp_secret: string | null
+  totp_enabled: number
+  created_at: string
+}
+
+export interface AdminSession {
+  token: string
+  user_id: number
+  expires_at: string
+  user_agent: string | null
+  created_at: string
+}
+
+const getAdminUser = db.prepare('SELECT * FROM admin_user LIMIT 1')
+const getAdminUserByUsername = db.prepare('SELECT * FROM admin_user WHERE username = ?')
+const insertAdminUser = db.prepare(
+  'INSERT INTO admin_user (username, password_hash, totp_secret, totp_enabled) VALUES (?, ?, ?, ?)'
+)
+const updateTotpSecret = db.prepare(
+  'UPDATE admin_user SET totp_secret = ?, totp_enabled = ? WHERE id = ?'
+)
+const insertSession = db.prepare(
+  'INSERT INTO admin_sessions (token, user_id, expires_at, user_agent) VALUES (?, ?, ?, ?)'
+)
+const getSession = db.prepare('SELECT * FROM admin_sessions WHERE token = ?')
+const deleteSession = db.prepare('DELETE FROM admin_sessions WHERE token = ?')
+const deleteExpiredSessions = db.prepare("DELETE FROM admin_sessions WHERE expires_at < datetime('now')")
+
+export function getAdmin(): AdminUser | undefined {
+  return getAdminUser.get() as AdminUser | undefined
+}
+
+export function getAdminByUsername(username: string): AdminUser | undefined {
+  return getAdminUserByUsername.get(username) as AdminUser | undefined
+}
+
+export function createAdminUser(username: string, passwordHash: string, totpSecret: string | null, totpEnabled: number): AdminUser {
+  const result = insertAdminUser.run(username, passwordHash, totpSecret, totpEnabled)
+  return { id: Number(result.lastInsertRowid), username, password_hash: passwordHash, totp_secret: totpSecret, totp_enabled: totpEnabled, created_at: new Date().toISOString() }
+}
+
+export function enableTotp(userId: number, encryptedSecret: string): void {
+  updateTotpSecret.run(encryptedSecret, 1, userId)
+}
+
+export function createAuthSession(token: string, userId: number, expiresAt: string, userAgent?: string): void {
+  insertSession.run(token, userId, expiresAt, userAgent ?? null)
+}
+
+export function getSessionByToken(token: string): AdminSession | undefined {
+  return getSession.get(token) as AdminSession | undefined
+}
+
+export function deleteSessionByToken(token: string): void {
+  deleteSession.run(token)
+}
+
+export function cleanupExpiredSessions(): void {
+  deleteExpiredSessions.run()
+}
+
 export default db
