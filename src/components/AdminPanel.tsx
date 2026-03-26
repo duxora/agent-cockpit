@@ -1,5 +1,4 @@
 import { useState } from 'react'
-import { LogOut } from 'lucide-react'
 import RailwayStatus from './RailwayStatus'
 import MetricsCard from './MetricsCard'
 import VariablesManager from './VariablesManager'
@@ -11,15 +10,6 @@ import { Settings } from 'lucide-react'
 export default function AdminPanel() {
   const [activeTab, setActiveTab] = useState<'railway' | 'settings' | 'analytics' | 'github'>('railway')
 
-  const handleLogout = async () => {
-    try {
-      await fetch('/api/auth/logout', { method: 'POST' })
-    } catch {
-      // Ignore errors, redirect anyway
-    }
-    window.location.href = '/login'
-  }
-
   return (
     <div className="flex h-full flex-col">
       <div className="flex items-center justify-between border-b border-gray-800 px-6 py-3">
@@ -27,14 +17,6 @@ export default function AdminPanel() {
           <Settings className="h-5 w-5 text-gray-400" />
           <h2 className="text-lg font-semibold text-gray-100">Administration</h2>
         </div>
-        <button
-          onClick={handleLogout}
-          className="flex items-center gap-2 rounded-lg bg-red-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-700 transition-colors"
-          title="Logout"
-        >
-          <LogOut className="h-4 w-4" />
-          Logout
-        </button>
       </div>
 
       <div className="flex border-b border-gray-800">
