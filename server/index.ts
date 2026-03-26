@@ -31,7 +31,7 @@ import {
 import { exchangeCodeForToken, verifyGoogleToken, generateSessionToken, generateOAuthState, getGoogleAuthUrl } from './oauth.js'
 import { initRailway, fetchDeployments, fetchMetrics, fetchEnvironmentVariables } from './railway.js'
 import { initGitHub, fetchPRs, fetchIssues, fetchBranches } from './github.js'
-import { listAvailableSkills, getSkillMetadata } from './skills.js'
+
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const app = express()
@@ -504,34 +504,6 @@ app.delete('/api/hooks/:id', (req, res) => {
   } catch (error) {
     console.error('Failed to delete hook:', error)
     res.status(500).json({ error: 'Failed to delete hook' })
-  }
-})
-
-// --- Skills Endpoints ---
-
-app.get('/api/skills', async (req, res) => {
-  try {
-    const skills = await listAvailableSkills()
-    res.json(skills)
-  } catch (error) {
-    console.error('Failed to list skills:', error)
-    res.status(500).json({ error: 'Failed to list skills' })
-  }
-})
-
-app.get('/api/skills/:name', async (req, res) => {
-  const { name } = req.params
-
-  try {
-    const skill = getSkillMetadata(name)
-    if (!skill) {
-      res.status(404).json({ error: 'Skill not found' })
-      return
-    }
-    res.json(skill)
-  } catch (error) {
-    console.error('Failed to get skill metadata:', error)
-    res.status(500).json({ error: 'Failed to get skill metadata' })
   }
 })
 

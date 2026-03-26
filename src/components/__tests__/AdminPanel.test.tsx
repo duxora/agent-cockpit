@@ -19,9 +19,7 @@ vi.mock('../AnalyticsDashboard', () => ({
 vi.mock('../HooksManager', () => ({
   HooksManager: () => <div>Mocked HooksManager</div>,
 }))
-vi.mock('../SkillsManager', () => ({
-  SkillsManager: () => <div>Mocked SkillsManager</div>,
-}))
+
 vi.mock('../GitHubStatus', () => ({
   GitHubStatus: () => <div>Mocked GitHubStatus</div>,
 }))
