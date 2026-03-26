@@ -1,5 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Plus, LayoutGrid, Rows3, RefreshCw, Search, Settings } from 'lucide-react'
+import { Plus, LayoutGrid, Rows3, RefreshCw, Search, Settings, LogOut } from 'lucide-react'
+import LoginPage from './pages/LoginPage'
+import SetupPage from './pages/SetupPage'
 import SessionCard from './components/SessionCard'
 import TerminalView from './components/TerminalView'
 import LocalSessionDetail from './components/LocalSessionDetail'
@@ -11,6 +13,7 @@ import { useNotifications } from './hooks/useNotifications'
 import type { Session } from './types'
 
 export default function App() {
+  const [authState, setAuthState] = useState<'loading' | 'setup' | 'login' | 'authenticated'>('loading')
   const [sessions, setSessions] = useState<Session[]>([])
   const [selectedSession, setSelectedSession] = useState<string | null>(null)
   const [showNewModal, setShowNewModal] = useState(false)
@@ -41,13 +44,38 @@ export default function App() {
     }
   }, [wsMessage])
 
+  // Check auth status on mount
+  useEffect(() => {
+    async function checkAuth() {
+      try {
+        const setupRes = await fetch('/api/auth/setup-status')
+        const setupData = await setupRes.json()
+        if (setupData.needsSetup) {
+          setAuthState('setup')
+          return
+        }
+        const meRes = await fetch('/api/auth/me')
+        if (meRes.ok) {
+          setAuthState('authenticated')
+        } else {
+          setAuthState('login')
+        }
+      } catch {
+        // If auth endpoints don't exist (cloudflare mode), assume authenticated
+        setAuthState('authenticated')
+      }
+    }
+    checkAuth()
+  }, [])
+
   // Initial fetch
   useEffect(() => {
+    if (authState !== 'authenticated') return
     fetch('/api/sessions')
       .then((r) => r.json())
       .then(setSessions)
       .catch(() => {})
-  }, [])
+  }, [authState])
 
   const handleKill = useCallback(async (name: string, session?: Session) => {
     const id = session?.source === 'local' && session.sessionId ? session.sessionId : name
@@ -80,6 +108,11 @@ export default function App() {
     })
   }, [])
 
+  const handleLogout = useCallback(async () => {
+    await fetch('/api/auth/logout', { method: 'POST' })
+    setAuthState('login')
+  }, [])
+
   const handleRefresh = useCallback(async () => {
     const res = await fetch('/api/sessions')
     const data = await res.json()
@@ -105,6 +138,22 @@ export default function App() {
 
   const waitingCount = sessions.filter((s) => s.status === 'waiting').length
   const activeCount = sessions.filter((s) => s.status === 'active').length
+
+  if (authState === 'loading') {
+    return (
+      <div className="flex h-screen items-center justify-center bg-gray-950">
+        <div className="text-gray-400 text-sm">Loading...</div>
+      </div>
+    )
+  }
+
+  if (authState === 'setup') {
+    return <SetupPage onSetupComplete={() => setAuthState('authenticated')} />
+  }
+
+  if (authState === 'login') {
+    return <LoginPage onLoginSuccess={() => setAuthState('authenticated')} />
+  }
 
   return (
     <div className="flex h-screen flex-col">
@@ -171,6 +220,14 @@ export default function App() {
             title="Settings"
           >
             <Settings className="h-4 w-4" />
+          </button>
+
+          <button
+            onClick={handleLogout}
+            className="rounded-lg p-2 text-gray-400 hover:bg-gray-800 hover:text-gray-200"
+            title="Logout"
+          >
+            <LogOut className="h-4 w-4" />
           </button>
 
           <button
