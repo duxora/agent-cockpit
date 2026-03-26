@@ -441,6 +441,12 @@ export function getGitHubConfig(): GitHubConfig | null {
 
 // --- Auth Tables ---
 
+// Drop old auth tables from Google OAuth era (incompatible schema)
+db.exec(`
+  DROP TABLE IF EXISTS admin_sessions;
+  DROP TABLE IF EXISTS admin_users;
+`)
+
 db.exec(`
   CREATE TABLE IF NOT EXISTS admin_user (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
