@@ -25,6 +25,11 @@ import {
   saveGitHubConfig, getGitHubConfig,
 } from './db.js'
 import { cfAccessMiddleware, cfAccessWsAuth } from './middleware/cloudflare-access.js'
+import { localAuthMiddleware, localAuthWsAuth } from './middleware/local-auth.js'
+import { createAuthRouter } from './auth/routes.js'
+import { cleanupExpiredSessions } from './db.js'
+
+const AUTH_MODE = process.env.AUTH_MODE || 'local'
 import { initRailway, fetchDeployments, fetchMetrics, fetchEnvironmentVariables } from './railway.js'
 import { initGitHub, fetchPRs, fetchIssues, fetchBranches } from './github.js'
 
@@ -40,18 +45,25 @@ initGitHub()
 app.use(express.json())
 
 // Public routes that don't need authentication
-const publicRoutes = ['/health', '/api/system/capabilities', '/api/hooks/session-start', '/api/hooks/heartbeat', '/api/hooks/session-end', '/api/share']
+const publicRoutes = ['/health', '/api/system/capabilities', '/api/hooks/session-start', '/api/hooks/heartbeat', '/api/hooks/session-end', '/api/share', '/api/auth']
 
 app.use((req, res, next) => {
   if (publicRoutes.some(route => req.path === route || req.path.startsWith(route + '/'))) {
     return next()
   }
-  // Cloudflare Access auth for all other /api routes
   if (req.path.startsWith('/api')) {
-    return cfAccessMiddleware(req, res, next)
+    if (AUTH_MODE === 'cloudflare') {
+      return cfAccessMiddleware(req, res, next)
+    }
+    return localAuthMiddleware(req, res, next)
   }
   next()
 })
+
+// Auth routes (local mode only)
+if (AUTH_MODE === 'local') {
+  app.use('/api/auth', createAuthRouter())
+}
 
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok' })
@@ -516,6 +528,11 @@ setInterval(broadcastSessions, 3000)
 // Cleanup stale managed sessions every 60 seconds
 setInterval(cleanupManagedSessions, 60000)
 
+// Cleanup expired auth sessions every hour (local auth mode)
+if (AUTH_MODE === 'local') {
+  setInterval(cleanupExpiredSessions, 60 * 60 * 1000)
+}
+
 wss.on('connection', (ws) => {
   // Send initial session list on connect
   ws.send(JSON.stringify({ type: 'sessions', data: getMergedSessions().map((s) => ({
@@ -530,7 +547,9 @@ const termWss = new WebSocketServer({ noServer: true })
 const relayWss = new WebSocketServer({ noServer: true })
 
 server.on('upgrade', async (request, socket, head) => {
-  const user = await cfAccessWsAuth(request as any)
+  const user = AUTH_MODE === 'cloudflare'
+    ? await cfAccessWsAuth(request as any)
+    : localAuthWsAuth(request as any)
   if (!user) {
     socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n')
     socket.destroy()
@@ -695,6 +714,7 @@ server.listen(PORT, '0.0.0.0', () => {
     .filter((i): i is os.NetworkInterfaceInfo => !!i && i.family === 'IPv4' && !i.internal)
 
   console.log(`\n  Agent Cockpit running at:`)
+  console.log(`  Auth mode: ${AUTH_MODE}`)
   console.log(`    Local:   http://localhost:${PORT}`)
   interfaces.forEach((i) => {
     console.log(`    Network: http://${i.address}:${PORT}`)
