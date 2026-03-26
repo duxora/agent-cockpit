@@ -37,9 +37,9 @@ describe('Auth Middleware - Task 6: Session-Based Authentication', () => {
       expect(response.status).toBe(200)
     })
 
-    it('should allow access to /api/hooks without session token', async () => {
-      const response = await fetch(`${API_BASE}/api/hooks`)
-      expect([200, 500]).toContain(response.status) // 500 if DB not ready, but shouldn't be 401
+    it('should allow access to /api/hooks/session-start without session token', async () => {
+      const response = await fetch(`${API_BASE}/api/hooks/session-start`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
+      expect([200, 400, 500]).toContain(response.status) // 400 if missing fields, but shouldn't be 401
     })
 
     it('should allow access to /api/auth/google without session token', async () => {

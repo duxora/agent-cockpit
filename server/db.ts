@@ -97,18 +97,6 @@ db.exec(`
     updated_at INTEGER DEFAULT (unixepoch())
   );
 
-  CREATE TABLE IF NOT EXISTS hooks (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    hook_type TEXT NOT NULL,
-    trigger TEXT NOT NULL,
-    name TEXT NOT NULL,
-    command TEXT NOT NULL,
-    enabled BOOLEAN DEFAULT 1,
-    created_at INTEGER DEFAULT (unixepoch())
-  );
-
-  CREATE INDEX IF NOT EXISTS idx_hooks_hook_type ON hooks(hook_type);
-  CREATE INDEX IF NOT EXISTS idx_hooks_enabled ON hooks(enabled);
 `)
 
 export interface SessionEvent {
@@ -424,87 +412,6 @@ export function getAggregatedMetrics(days: number = 30): any {
   const daily = getDailyMetricsQuery.all(sinceTimestamp)
 
   return { metrics, daily }
-}
-
-// --- Hooks ---
-
-export interface Hook {
-  id: number
-  hook_type: 'pre-session' | 'post-session'
-  trigger: 'on-start' | 'on-end' | 'manual'
-  name: string
-  command: string
-  enabled: boolean
-  created_at: number
-}
-
-const insertHook = db.prepare(`
-  INSERT INTO hooks (hook_type, trigger, name, command, enabled)
-  VALUES (?, ?, ?, ?, ?)
-`)
-
-const selectAllHooks = db.prepare(`
-  SELECT * FROM hooks ORDER BY created_at DESC
-`)
-
-const selectHooksByType = db.prepare(`
-  SELECT * FROM hooks WHERE hook_type = ? ORDER BY created_at DESC
-`)
-
-const selectHookById = db.prepare(`
-  SELECT * FROM hooks WHERE id = ?
-`)
-
-const updateHookStmt = db.prepare(`
-  UPDATE hooks SET name = ?, command = ?, enabled = ? WHERE id = ?
-`)
-
-const deleteHookStmt = db.prepare(`
-  DELETE FROM hooks WHERE id = ?
-`)
-
-export function createHook(hookData: Omit<Hook, 'id' | 'created_at'>): Hook {
-  const result = insertHook.run(
-    hookData.hook_type,
-    hookData.trigger,
-    hookData.name,
-    hookData.command,
-    hookData.enabled ? 1 : 0
-  )
-
-  return {
-    id: Number(result.lastInsertRowid),
-    ...hookData,
-    created_at: Math.floor(Date.now() / 1000)
-  }
-}
-
-export function listHooks(filterType?: string): Hook[] {
-  if (filterType) {
-    return selectHooksByType.all(filterType) as Hook[]
-  }
-  return selectAllHooks.all() as Hook[]
-}
-
-export function getHook(id: number): Hook | null {
-  return selectHookById.get(id) as Hook | null
-}
-
-export function updateHook(id: number, updates: Partial<Omit<Hook, 'id' | 'created_at'>>): Hook | null {
-  const hook = getHook(id)
-  if (!hook) return null
-
-  const name = updates.name ?? hook.name
-  const command = updates.command ?? hook.command
-  const enabled = updates.enabled !== undefined ? updates.enabled : hook.enabled
-
-  updateHookStmt.run(name, command, enabled ? 1 : 0, id)
-
-  return { ...hook, name, command, enabled }
-}
-
-export function deleteHook(id: number): boolean {
-  return deleteHookStmt.run(id).changes > 0
 }
 
 // --- GitHub Config ---

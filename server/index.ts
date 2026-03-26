@@ -24,8 +24,6 @@ import {
   upsertDeploymentRecord, listDeployments, logMetric, getMetrics,
   logSessionMetrics, getAggregatedMetrics, getSessionMetrics,
   saveGitHubConfig, getGitHubConfig,
-  createHook, listHooks, updateHook, deleteHook,
-
   createSession, getSessionByToken, deleteSession, cleanupExpiredSessions,
 } from './db.js'
 import { exchangeCodeForToken, verifyGoogleToken, generateSessionToken, generateOAuthState, getGoogleAuthUrl } from './oauth.js'
@@ -80,7 +78,7 @@ declare global {
 }
 
 // --- Session-Based Auth Middleware ---
-const publicRoutes = ['/health', '/api/system/capabilities', '/api/hooks', '/api/auth/google', '/api/auth/google/callback', '/api/auth/logout', '/api/share']
+const publicRoutes = ['/health', '/api/system/capabilities', '/api/hooks/session-start', '/api/hooks/heartbeat', '/api/hooks/session-end', '/api/auth/google', '/api/auth/google/callback', '/api/auth/logout', '/api/share']
 
 app.use((req, res, next) => {
   // Skip auth for public routes
@@ -433,77 +431,6 @@ app.get('/api/admin/analytics/history', (req, res) => {
   } catch (error) {
     console.error('Failed to get session history:', error)
     res.status(500).json({ error: 'Failed to get session history' })
-  }
-})
-
-// --- Hooks Management Endpoints (no auth for frontend) ---
-
-app.get('/api/hooks', (req, res) => {
-  try {
-    const hookType = req.query.type as string | undefined
-    const hooks = listHooks(hookType)
-    res.json(hooks)
-  } catch (error) {
-    console.error('Failed to list hooks:', error)
-    res.status(500).json({ error: 'Failed to list hooks' })
-  }
-})
-
-app.post('/api/hooks', (req, res) => {
-  try {
-    const { hook_type, trigger, name, command, enabled } = req.body
-
-    if (!hook_type || !trigger || !name || !command) {
-      res.status(400).json({ error: 'Missing required fields' })
-      return
-    }
-
-    const hook = createHook({
-      hook_type,
-      trigger,
-      name,
-      command,
-      enabled: enabled !== false
-    })
-    res.status(201).json(hook)
-  } catch (error) {
-    console.error('Failed to create hook:', error)
-    res.status(500).json({ error: 'Failed to create hook' })
-  }
-})
-
-app.put('/api/hooks/:id', (req, res) => {
-  try {
-    const id = parseInt(req.params.id)
-    const { enabled, command, name } = req.body
-
-    const updated = updateHook(id, { enabled, command, name })
-    if (!updated) {
-      res.status(404).json({ error: 'Hook not found' })
-      return
-    }
-
-    res.json(updated)
-  } catch (error) {
-    console.error('Failed to update hook:', error)
-    res.status(500).json({ error: 'Failed to update hook' })
-  }
-})
-
-app.delete('/api/hooks/:id', (req, res) => {
-  try {
-    const id = parseInt(req.params.id)
-
-    const success = deleteHook(id)
-    if (!success) {
-      res.status(404).json({ error: 'Hook not found' })
-      return
-    }
-
-    res.json({ success: true })
-  } catch (error) {
-    console.error('Failed to delete hook:', error)
-    res.status(500).json({ error: 'Failed to delete hook' })
   }
 })
 
