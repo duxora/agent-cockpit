@@ -32,6 +32,7 @@ import { exchangeCodeForToken, verifyGoogleToken, generateSessionToken, generate
 import { initRailway, fetchDeployments, fetchMetrics, fetchEnvironmentVariables } from './railway.js'
 import { initGitHub, fetchPRs, fetchIssues, fetchBranches } from './github.js'
 import { listAvailableSkills, getSkillMetadata } from './skills.js'
+import { registerBacklogRoutes } from './backlog.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const app = express()
@@ -105,6 +106,8 @@ app.use((req, res, next) => {
   (req as any).user = { email: session.userEmail, role: 'admin' }
   next()
 })
+
+registerBacklogRoutes(app)
 
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok' })
