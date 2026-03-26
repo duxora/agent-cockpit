@@ -25,7 +25,7 @@ import {
   logSessionMetrics, getAggregatedMetrics, getSessionMetrics,
   saveGitHubConfig, getGitHubConfig,
   createHook, listHooks, updateHook, deleteHook,
-  listPendingTasks, updateTaskStatus, updateTaskResult, getSyncStatus,
+
   createSession, getSessionByToken, deleteSession, cleanupExpiredSessions,
 } from './db.js'
 import { exchangeCodeForToken, verifyGoogleToken, generateSessionToken, generateOAuthState, getGoogleAuthUrl } from './oauth.js'
@@ -80,7 +80,7 @@ declare global {
 }
 
 // --- Session-Based Auth Middleware ---
-const publicRoutes = ['/health', '/api/system/capabilities', '/api/hooks', '/api/auth/google', '/api/auth/google/callback', '/api/auth/logout', '/api/share', '/api/channel']
+const publicRoutes = ['/health', '/api/system/capabilities', '/api/hooks', '/api/auth/google', '/api/auth/google/callback', '/api/auth/logout', '/api/share']
 
 app.use((req, res, next) => {
   // Skip auth for public routes
@@ -597,83 +597,6 @@ app.post('/api/hooks/session-end', (req, res) => {
   logEvent(eventName, 'ended')
   broadcastSessions()
   res.json({ ok: true })
-})
-
-// --- Channel API Endpoints ---
-
-app.get('/api/channel/tasks/pending', (req, res) => {
-  try {
-    const tasks = listPendingTasks(10)
-    const checkpoint = tasks.length > 0 ? tasks[tasks.length - 1].id : null
-
-    // Update status to 'fetched' for each task
-    tasks.forEach(task => {
-      updateTaskStatus(task.id, 'fetched', { fetched_at: true })
-    })
-
-    res.json({
-      tasks: tasks.map(t => ({
-        id: t.id,
-        task_type: t.task_type,
-        title: t.title,
-        input_payload: t.input_payload,
-        created_at: t.created_at
-      })),
-      checkpoint
-    })
-  } catch (error) {
-    console.error('Failed to fetch pending tasks:', error)
-    res.status(500).json({ error: 'Failed to fetch tasks' })
-  }
-})
-
-app.post('/api/channel/tasks/:id/result', (req, res) => {
-  try {
-    const { id } = req.params
-    const { status, output_payload, error_message, duration_ms } = req.body
-
-    if (!['completed', 'failed'].includes(status)) {
-      return res.status(400).json({ error: 'Invalid status' })
-    }
-
-    updateTaskResult(id, status as 'completed' | 'failed', output_payload || {}, error_message, duration_ms)
-
-    res.json({
-      acknowledged: true,
-      task_id: id
-    })
-  } catch (error) {
-    console.error('Failed to update task result:', error)
-    res.status(500).json({ error: 'Failed to update task' })
-  }
-})
-
-app.get('/api/channel/sync/status', (req, res) => {
-  try {
-    const status = getSyncStatus()
-
-    // Find the most recently active channel session
-    const channelSessions = listManagedSessions().filter(
-      (s) => s.name === 'claude-code-channel'
-    )
-    const activeSession = channelSessions[0] ?? null
-    const sessionIdle = activeSession && activeSession.status === 'idle'
-
-    res.json({
-      session_id: activeSession?.id ?? null,
-      status: activeSession
-        ? (sessionIdle ? 'idle' : 'connected')
-        : 'offline',
-      last_sync: status.last_sync,
-      pending_count: status.pending_count,
-      completed_today: status.completed_today,
-      in_progress: status.in_progress,
-      active_channel_sessions: channelSessions.length,
-    })
-  } catch (error) {
-    console.error('Failed to get sync status:', error)
-    res.status(500).json({ error: 'Failed to get status' })
-  }
 })
 
 // --- Auth Endpoints ---

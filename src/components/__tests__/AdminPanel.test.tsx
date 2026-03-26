@@ -23,10 +23,6 @@ vi.mock('../HooksManager', () => ({
 vi.mock('../GitHubStatus', () => ({
   GitHubStatus: () => <div>Mocked GitHubStatus</div>,
 }))
-vi.mock('../ClaudeTasksTab', () => ({
-  default: () => <div>Mocked ClaudeTasksTab</div>,
-}))
-
 describe('AdminPanel - Logout Button', () => {
   beforeEach(() => {
     vi.clearAllMocks()
