@@ -39,6 +39,12 @@ const app = express()
 const server = createServer(app)
 const PORT = parseInt(process.env.PORT || '4200')
 
+// Fail fast: SKIP_AUTH bypasses all authentication — never allow in production
+if (process.env.SKIP_AUTH === 'true' && process.env.NODE_ENV === 'production') {
+  console.error('FATAL: SKIP_AUTH=true is not allowed in production (NODE_ENV=production). Remove it from Railway environment variables.')
+  process.exit(1)
+}
+
 initRailway()
 initGitHub()
 
