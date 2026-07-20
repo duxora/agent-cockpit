@@ -1,5 +1,7 @@
 #!/bin/bash
 # Called by Claude Code Stop hook (each turn end)
+# Telemetry only: stdout stays empty and the exit code stays 0. Stop hooks can
+# block with {"decision":"block","reason":...}; this one never should.
 INPUT=$(cat)
 SESSION_ID=$(echo "$INPUT" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('session_id',''))" 2>/dev/null)
 

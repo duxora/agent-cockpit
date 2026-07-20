@@ -1,6 +1,9 @@
 #!/bin/bash
 # Called by Claude Code SessionStart hook
 # Registers session with Agent Cockpit
+# Telemetry only: stdout stays empty and the exit code stays 0. Claude Code parses
+# hook stdout as a decision payload, so any stray line here is a malformed one.
+# See server/hook-decision.ts for the blocking contract (exit 2 + valid payload).
 INPUT=$(cat)
 SESSION_ID=$(echo "$INPUT" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('session_id',''))" 2>/dev/null)
 CWD=$(echo "$INPUT" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('cwd',''))" 2>/dev/null)
