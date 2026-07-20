@@ -28,6 +28,7 @@ import { cfAccessMiddleware, cfAccessWsAuth } from './middleware/cloudflare-acce
 import { localAuthMiddleware, localAuthWsAuth } from './middleware/local-auth.js'
 import { createAuthRouter } from './auth/routes.js'
 import { cleanupExpiredSessions } from './db.js'
+import { normalizeSessionSource, isContinuationSource } from './session-source.js'
 
 const AUTH_MODE = process.env.AUTH_MODE || 'local'
 import { initRailway, fetchDeployments, fetchMetrics, fetchEnvironmentVariables } from './railway.js'
@@ -435,13 +436,23 @@ app.post('/api/sessions/:id/open-terminal', (req, res) => {
 // --- Hook API (no auth required) ---
 
 app.post('/api/hooks/session-start', (req, res) => {
-  const { session_id, name, cwd, metadata } = req.body
+  const { session_id, name, cwd, metadata, source } = req.body
   if (!session_id || !name) {
     res.status(400).json({ error: 'session_id and name are required' })
     return
   }
-  registerManagedSession(session_id, name, cwd || '~', metadata ? JSON.stringify(metadata) : undefined)
-  logEvent(name, 'started', JSON.stringify({ session_id, cwd: cwd || '~' }))
+  // Forked sessions report source 'fork' (v2.1.214+); record it so they aren't
+  // indistinguishable from cold starts in the event log.
+  const sessionSource = normalizeSessionSource(source)
+  const baseMetadata = metadata && typeof metadata === 'object' && !Array.isArray(metadata) ? metadata : {}
+  const enrichedMetadata = { ...baseMetadata, source: sessionSource }
+  registerManagedSession(session_id, name, cwd || '~', JSON.stringify(enrichedMetadata))
+  logEvent(name, 'started', JSON.stringify({
+    session_id,
+    cwd: cwd || '~',
+    source: sessionSource,
+    continuation: isContinuationSource(sessionSource),
+  }))
   broadcastSessions()
   res.json({ ok: true })
 })

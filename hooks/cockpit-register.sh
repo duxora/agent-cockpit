@@ -4,6 +4,8 @@
 INPUT=$(cat)
 SESSION_ID=$(echo "$INPUT" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('session_id',''))" 2>/dev/null)
 CWD=$(echo "$INPUT" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('cwd',''))" 2>/dev/null)
+# startup | resume | clear | compact | fork ('fork' added in Claude Code v2.1.214)
+SOURCE=$(echo "$INPUT" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('source',''))" 2>/dev/null)
 NAME=$(basename "$CWD")
 
 [ -z "$SESSION_ID" ] && exit 0
@@ -13,7 +15,7 @@ COCKPIT_AUTH="${COCKPIT_AUTH:-admin:spartan2026}"
 
 curl -sf --max-time 5 -X POST "$COCKPIT_URL/api/hooks/session-start" \
   -H "Content-Type: application/json" \
-  -d "{\"session_id\":\"$SESSION_ID\",\"name\":\"$NAME\",\"cwd\":\"$CWD\"}" \
+  -d "{\"session_id\":\"$SESSION_ID\",\"name\":\"$NAME\",\"cwd\":\"$CWD\",\"source\":\"$SOURCE\"}" \
   -u "$COCKPIT_AUTH" \
   >/dev/null 2>&1 &
 
