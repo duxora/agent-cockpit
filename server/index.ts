@@ -446,7 +446,8 @@ app.post('/api/hooks/session-start', (req, res) => {
   const sessionSource = normalizeSessionSource(source)
   const baseMetadata = metadata && typeof metadata === 'object' && !Array.isArray(metadata) ? metadata : {}
   const enrichedMetadata = { ...baseMetadata, source: sessionSource }
-  registerManagedSession(session_id, name, cwd || '~', JSON.stringify(enrichedMetadata))
+  // Pass the source so continuation starts don't reset started_at (durationMs).
+  registerManagedSession(session_id, name, cwd || '~', JSON.stringify(enrichedMetadata), sessionSource)
   logEvent(name, 'started', JSON.stringify({
     session_id,
     cwd: cwd || '~',

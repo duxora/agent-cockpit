@@ -1,9 +1,11 @@
 import Database from 'better-sqlite3'
 import path from 'path'
 import { fileURLToPath } from 'url'
+import { isContinuationSource, type SessionStartSource } from './session-source.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
-const DB_PATH = path.join(__dirname, '..', 'cockpit.db')
+// COCKPIT_DB_PATH lets tests point at a throwaway file instead of the live db.
+const DB_PATH = process.env.COCKPIT_DB_PATH || path.join(__dirname, '..', 'cockpit.db')
 
 const db = new Database(DB_PATH)
 
@@ -170,9 +172,30 @@ export function removeTemplate(id: number): boolean {
 
 // --- Managed Sessions (auto-linked Claude sessions) ---
 
+// Cold start: a re-registered id is a genuinely new session, so started_at resets.
 const upsertManagedSession = db.prepare(
-  `INSERT OR REPLACE INTO managed_sessions (id, name, cwd, status, started_at, last_heartbeat, metadata)
-   VALUES (?, ?, ?, 'active', ?, ?, ?)`
+  `INSERT INTO managed_sessions (id, name, cwd, status, started_at, last_heartbeat, metadata)
+   VALUES (?, ?, ?, 'active', ?, ?, ?)
+   ON CONFLICT(id) DO UPDATE SET
+     name = excluded.name,
+     cwd = excluded.cwd,
+     status = 'active',
+     started_at = excluded.started_at,
+     last_heartbeat = excluded.last_heartbeat,
+     metadata = excluded.metadata`
+)
+
+// Continuation (resume/fork/clear/compact): the session keeps running, so
+// started_at must survive — overwriting it corrupts durationMs at session end.
+const upsertManagedSessionKeepStart = db.prepare(
+  `INSERT INTO managed_sessions (id, name, cwd, status, started_at, last_heartbeat, metadata)
+   VALUES (?, ?, ?, 'active', ?, ?, ?)
+   ON CONFLICT(id) DO UPDATE SET
+     name = excluded.name,
+     cwd = excluded.cwd,
+     status = 'active',
+     last_heartbeat = excluded.last_heartbeat,
+     metadata = excluded.metadata`
 )
 
 const updateHeartbeat = db.prepare(
@@ -205,9 +228,16 @@ export interface ManagedSession {
   metadata: string | null
 }
 
-export function registerManagedSession(id: string, name: string, cwd: string, metadata?: string): void {
+export function registerManagedSession(
+  id: string,
+  name: string,
+  cwd: string,
+  metadata?: string,
+  source: SessionStartSource = 'startup'
+): void {
   const now = Math.floor(Date.now() / 1000)
-  upsertManagedSession.run(id, name, cwd, now, now, metadata ?? null)
+  const stmt = isContinuationSource(source) ? upsertManagedSessionKeepStart : upsertManagedSession
+  stmt.run(id, name, cwd, now, now, metadata ?? null)
 }
 
 export function heartbeatManagedSession(id: string, status: string = 'active'): void {
