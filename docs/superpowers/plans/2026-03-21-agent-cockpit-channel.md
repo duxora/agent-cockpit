@@ -934,7 +934,7 @@ export default function ClaudeTasksTab() {
     try {
       const response = await fetch('/api/channel/sync/status', {
         headers: {
-          'Authorization': 'Basic ' + Buffer.from('admin:spartan2026').toString('base64')
+          'Authorization': 'Basic ' + Buffer.from(process.env.COCKPIT_AUTH ?? '').toString('base64')
         }
       })
       if (response.ok) {

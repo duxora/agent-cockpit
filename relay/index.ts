@@ -1,6 +1,6 @@
 #!/usr/bin/env -S npx tsx
 /**
- * Cockpit Relay — wraps any command in a PTY and streams I/O to the cockpit server.
+ * Cockpit Relay - wraps any command in a PTY and streams I/O to the cockpit server.
  *
  * Usage:
  *   npx agent-cockpit relay claude --dangerously-skip-permissions
@@ -9,9 +9,9 @@
  * All arguments after "relay" are passed through to the command unchanged.
  *
  * Environment:
- *   COCKPIT_URL   — Server URL (default: https://agent-cockpit-production.up.railway.app)
- *   COCKPIT_AUTH  — Basic auth user:pass (default: admin:spartan2026)
- *   COCKPIT_SESSION_ID — Override session ID (default: auto-generated)
+ *   COCKPIT_URL   - Server URL (default: https://agent-cockpit-production.up.railway.app)
+ *   COCKPIT_AUTH  - Basic auth user:pass (optional; unset by default)
+ *   COCKPIT_SESSION_ID - Override session ID (default: auto-generated)
  */
 import * as pty from 'node-pty'
 import { WebSocket } from 'ws'
@@ -21,7 +21,7 @@ import crypto from 'crypto'
 
 // --- Config ---
 const COCKPIT_URL = process.env.COCKPIT_URL || 'https://agent-cockpit-production.up.railway.app'
-const COCKPIT_AUTH = process.env.COCKPIT_AUTH || 'admin:spartan2026'
+const COCKPIT_AUTH = process.env.COCKPIT_AUTH || ''
 const SESSION_ID = process.env.COCKPIT_SESSION_ID || `relay-${crypto.randomUUID().slice(0, 8)}`
 const CWD = process.cwd()
 const PROJECT_NAME = path.basename(CWD)
