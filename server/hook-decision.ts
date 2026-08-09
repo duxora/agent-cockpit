@@ -3,7 +3,7 @@
 // Claude Code decides whether a hook blocks from two independent channels: the
 // process exit code and the JSON written to stdout. Before v2.1.214 a hook that
 // exited 2 but wrote stdout JSON failing schema validation was NOT treated as a
-// block — the malformed payload swallowed the exit code. That is fixed upstream,
+// block - the malformed payload swallowed the exit code. That is fixed upstream,
 // but the reason text still only reaches the model when the payload validates
 // (or, for exit 2, via stderr), so the cockpit emits nothing it cannot verify.
 //
@@ -24,7 +24,13 @@ export type PermissionHookEvent = (typeof PERMISSION_EVENTS)[number]
 export type DecisionHookEvent = (typeof DECISION_EVENTS)[number]
 export type HookEvent = PermissionHookEvent | DecisionHookEvent
 
-export type PermissionDecision = 'allow' | 'deny' | 'ask'
+// `defer` was added upstream alongside allow|deny|ask. The cockpit never EMITS it - it only
+// emits deny (emitBlock) and allow - but the validator must accept it, because this function is
+// the gate on what may be written to stdout: rejecting a value Claude Code considers legal would
+// route a legitimate decision to the stderr fallback instead.
+export type PermissionDecision = 'allow' | 'deny' | 'ask' | 'defer'
+
+const PERMISSION_DECISIONS: readonly PermissionDecision[] = ['allow', 'deny', 'ask', 'defer']
 
 export interface PermissionHookResponse {
   hookSpecificOutput: {
@@ -50,7 +56,7 @@ export function isDecisionEvent(event: string): event is DecisionHookEvent {
 }
 
 // Builds the stdout payload for a block. `reason` is required by the schema for
-// both shapes — an empty reason is a validation failure, not a silent default,
+// both shapes - an empty reason is a validation failure, not a silent default,
 // so callers cannot accidentally ship a block the model can't explain.
 export function buildBlockResponse(event: HookEvent, reason: string): HookResponse {
   if (isPermissionEvent(event)) {
@@ -108,8 +114,10 @@ export function validateHookResponse(payload: unknown): ValidationResult {
       if (typeof hookEventName !== 'string' || !isPermissionEvent(hookEventName)) {
         errors.push(`hookSpecificOutput.hookEventName must be one of ${PERMISSION_EVENTS.join(', ')}`)
       }
-      if (permissionDecision !== 'allow' && permissionDecision !== 'deny' && permissionDecision !== 'ask') {
-        errors.push('hookSpecificOutput.permissionDecision must be allow, deny, or ask')
+      if (!PERMISSION_DECISIONS.includes(permissionDecision as PermissionDecision)) {
+        errors.push(
+          `hookSpecificOutput.permissionDecision must be one of ${PERMISSION_DECISIONS.join(', ')}`
+        )
       }
       if (typeof permissionDecisionReason !== 'string' || permissionDecisionReason.trim() === '') {
         errors.push('hookSpecificOutput.permissionDecisionReason must be a non-empty string')
@@ -137,7 +145,7 @@ export interface HookEmission {
 
 // Single exit point for a blocking hook decision. The exit code carries the
 // block; stdout carries the payload only when it validates. When it doesn't, the
-// reason is routed to stderr — which Claude Code surfaces for exit 2 — so the
+// reason is routed to stderr - which Claude Code surfaces for exit 2 - so the
 // block still lands with an explanation instead of a rejected payload.
 export function emitBlock(event: HookEvent, reason: string): HookEmission {
   const trimmed = reason.trim()

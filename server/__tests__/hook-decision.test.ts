@@ -28,6 +28,20 @@ describe('validateHookResponse', () => {
     expect(validateHookResponse(buildAllowResponse('PreToolUse', 'session active')).valid).toBe(true)
   })
 
+  // This validator is the gate on what may be written to stdout, so it has to accept every
+  // decision Claude Code considers legal - not only the two the cockpit itself emits. Rejecting
+  // one would send a legitimate decision down the stderr fallback and drop the payload.
+  it.each(['allow', 'deny', 'ask', 'defer'])('accepts permissionDecision %s', (decision) => {
+    const payload = {
+      hookSpecificOutput: {
+        hookEventName: 'PreToolUse',
+        permissionDecision: decision,
+        permissionDecisionReason: 'because',
+      },
+    }
+    expect(validateHookResponse(payload)).toEqual({ valid: true, errors: [] })
+  })
+
   it.each([
     ['non-object', 'blocked'],
     ['array', ['blocked']],
