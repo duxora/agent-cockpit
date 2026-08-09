@@ -10,7 +10,7 @@
  *
  * Environment:
  *   COCKPIT_URL   - Server URL (default: https://agent-cockpit-production.up.railway.app)
- *   COCKPIT_AUTH  - Basic auth user:pass (optional; unset by default)
+ *   RELAY_SECRET  - Shared secret for the WS upgrade; must match the server's RELAY_SECRET
  *   COCKPIT_SESSION_ID - Override session ID (default: auto-generated)
  */
 import * as pty from 'node-pty'
@@ -21,7 +21,7 @@ import crypto from 'crypto'
 
 // --- Config ---
 const COCKPIT_URL = process.env.COCKPIT_URL || 'https://agent-cockpit-production.up.railway.app'
-const COCKPIT_AUTH = process.env.COCKPIT_AUTH || ''
+const RELAY_SECRET = process.env.RELAY_SECRET || ''
 const SESSION_ID = process.env.COCKPIT_SESSION_ID || `relay-${crypto.randomUUID().slice(0, 8)}`
 const CWD = process.cwd()
 const PROJECT_NAME = path.basename(CWD)
@@ -48,7 +48,7 @@ Examples:
 
 Environment:
   COCKPIT_URL          Server URL (default: ${COCKPIT_URL})
-  COCKPIT_AUTH         Basic auth user:pass
+  RELAY_SECRET         Shared secret; must match the server's RELAY_SECRET
   COCKPIT_SESSION_ID   Override session ID (default: auto-generated)`)
   process.exit(1)
 }
@@ -62,10 +62,9 @@ async function registerSession(): Promise<void> {
     const url = `${COCKPIT_URL}/api/hooks/session-start`
     const res = await fetch(url, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Basic ${Buffer.from(COCKPIT_AUTH).toString('base64')}`,
-      },
+      // /api/hooks/* is public - the Basic header this used to send matched no scheme the
+      // server accepts and was inert either way.
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         session_id: SESSION_ID,
         name: PROJECT_NAME,
@@ -85,10 +84,7 @@ async function endSession(): Promise<void> {
   try {
     await fetch(`${COCKPIT_URL}/api/hooks/session-end`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Basic ${Buffer.from(COCKPIT_AUTH).toString('base64')}`,
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ session_id: SESSION_ID }),
       signal: AbortSignal.timeout(5000),
     })
@@ -105,8 +101,19 @@ function connectRelay(ptyProcess: pty.IPty): void {
   const wsHost = COCKPIT_URL.replace(/^https?:\/\//, '')
   const wsUrl = `${wsProto}://${wsHost}/ws/relay/${encodeURIComponent(SESSION_ID)}`
 
-  const authHeader = `Basic ${Buffer.from(COCKPIT_AUTH).toString('base64')}`
-  const ws = new WebSocket(wsUrl, { headers: { Authorization: authHeader } })
+  // Bearer, not Basic: localAuthWsAuth accepts only `Bearer <RELAY_SECRET>`, a session cookie,
+  // or SKIP_AUTH. A Basic header matched none, so the relay 401'd against any deployed cockpit
+  // (SKIP_AUTH is refused under NODE_ENV=production) and only ever worked locally.
+  if (!RELAY_SECRET) {
+    // Say it up front. The 401 arrives as a bare close event, which is how a scheme mismatch
+    // went unnoticed until an audit - the relay looks like it started fine either way.
+    console.error(
+      '[relay] Warning: RELAY_SECRET is unset. The cockpit will reject this connection unless it runs with SKIP_AUTH=true.'
+    )
+  }
+  const ws = new WebSocket(wsUrl, {
+    headers: { Authorization: `Bearer ${RELAY_SECRET}` },
+  })
 
   ws.on('open', () => {
     activeWs = ws
