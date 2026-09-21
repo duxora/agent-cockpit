@@ -3,7 +3,17 @@
     "allow": [
       "Bash(sqlite3 /Users/ducduong/workspace/tools/agent-cockpit/cockpit.db \".schema\" 2>/dev/null || echo \"Database file exists but cannot read schema\")",
       "Bash(wc -l /Users/ducduong/workspace/tools/agent-cockpit/src/components/*.tsx /Users/ducduong/workspace/tools/agent-cockpit/server/*.ts /Users/ducduong/workspace/tools/agent-cockpit/relay/index.ts)",
-      "Bash(cockpit-relay 2>&1)"
+      "Bash(cockpit-relay 2>&1)",
+      "Bash(rm -rf /Users/ducduong/.gradle/caches)",
+      "Bash(yarn cache:*)",
+      "Bash(brew cleanup:*)",
+      "Bash(rm server/oauth.ts src/pages/LoginPage.tsx src/pages/__tests__/LoginPage.test.tsx)",
+      "Bash(rmdir src/pages/__tests__ src/pages)",
+      "Bash(rm -f /Users/ducduong/java_error_in_idea.hprof)",
+      "Bash(rm -f /Users/ducduong/.claude/debug/964da26a-b4b4-4bb2-bf30-6699ad4ef9af.txt /Users/ducduong/.claude/debug/06339c86-7dde-43a3-8f68-eaa376fd3cb3.txt)",
+      "Bash(rm -f /Users/ducduong/.gradle/daemon/8.11.1/daemon-8780.out.log)",
+      "Bash(rm -f /Users/ducduong/Library/Caches/beekeeper-studio-updater/update.zip /Users/ducduong/Library/Caches/lens-desktop-updater/update.zip)",
+      "Bash(rm -rf /Users/ducduong/.ollama)"
     ]
   }
 }
